@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hanime Media Center</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css?v=1.2">
+    <!-- Include HLS.js for streaming m3u8 videos -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+</head>
+<body>
+    <!-- Ambient Background Blobs -->
+    <div class="ambient-blob blob-1"></div>
+    <div class="ambient-blob blob-2"></div>
+
+    <!-- Top Global Header -->
+    <header class="top-nav">
+        <div class="logo cursor-pointer" id="navLogo">
+            <span class="logo-h">H</span>anime<span class="logo-web">Center</span>
+        </div>
+        <div class="nav-actions">
+            <button class="queue-nav-btn" id="downloadCenterBtn" title="查看下载中心">
+                <span>下载中心</span>
+                <span class="nav-pill" id="downloadBadge">0</span>
+            </button>
+            <button class="icon-btn" id="settingsBtn" title="全局设置">⚙️</button>
+        </div>
+    </header>
+
+    <div class="app-container">
+        
+        <!-- ==================== View 1: Landing Page ==================== -->
+        <section id="viewLanding" class="view-section active">
+            <div class="hero-text">
+                <h1>欢迎使用您的私人媒体中心</h1>
+                <p>探索浩瀚资源，或通过精准直链即时离线下载。</p>
+            </div>
+            <div class="landing-cards">
+                <div class="mode-card" id="modeBrowseBtn">
+                    <div class="card-icon">🧭</div>
+                    <h3>全站分类探索</h3>
+                    <p>按板块聚合浏览最新、最热里的番及 3DCG 等资源，发现你的热爱。</p>
+                </div>
+                <div class="mode-card" id="modeParseBtn">
+                    <div class="card-icon">⚡</div>
+                    <h3>极速链嗅探</h3>
+                    <p>拥有精准 URL？直接粘贴获取直链、解析系列表并执行无缝极速下载。</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== View 2: Browse Category Mode ==================== -->
+        <section id="viewBrowse" class="view-section hidden">
+            <div class="browse-layout">
+                <aside class="category-nav">
+                    <h3>板块分类</h3>
+                    <ul id="categoryList">
+                        <li class="active" data-cat="裏番">🔴 里番</li>
+                        <li data-cat="泡麵番">🍜 泡面番</li>
+                        <li data-cat="Motion Anime">🎞️ Motion Anime</li>
+                        <li data-cat="3DCG">🧊 3DCG</li>
+                        <li data-cat="2.5D">✨ 2.5D</li>
+                        <li data-cat="2D動畫">🎨 2D动画</li>
+                        <li data-cat="AI生成">🤖 AI生成</li>
+                        <li data-cat="MMD">💃 MMD</li>
+                        <li data-cat="Cosplay">👗 Cosplay</li>
+                    </ul>
+                </aside>
+                <main class="grid-content">
+                    <div class="grid-header">
+                        <h2 id="currentCategoryTitle">最新 里番</h2>
+                        <div class="browse-actions">
+                            <div class="selection-chip">本页已选 <span id="browseSelectionCount">0</span> 项</div>
+                            <div class="browse-batch-actions">
+                                <button class="btn-secondary" id="selectPageBtn">全选本页</button>
+                                <button class="btn-secondary" id="clearSelectedBtn">清空已选</button>
+                                <button class="btn-primary" id="addSelectedToQueueBtn">批量加入下载</button>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Spinner for fetching categories -->
+                    <div id="browseLoader" class="loader-container hidden">
+                        <div class="loader"></div>
+                        <p>正在后台驱动浏览器穿透盾牌抓取数据，请耐心等待...</p>
+                    </div>
+                    <div class="video-grid" id="videoGrid">
+                        <!-- Filled by JS -->
+                    </div>
+
+                    <!-- Pagination Controls -->
+                    <div class="pagination-bar" id="paginationBar">
+                        <button id="prevPageBtn" class="btn-secondary" title="上一页">←</button>
+                        <span class="page-number"><span id="pageIndicator">1</span> <span id="totalPagesIndicatorStr"></span></span>
+                        <button id="nextPageBtn" class="btn-secondary" title="下一页">→</button>
+                    </div>
+                </main>
+            </div>
+        </section>
+
+        <!-- ==================== View 3: Parser & Player Mode ==================== -->
+        <section id="viewParser" class="view-section hidden">
+            <!-- Search Area -->
+            <div class="search-header" id="searchHeader">
+                <div class="search-box-container">
+                    <div class="search-box" id="searchBoxOuter">
+                        <label style="color:var(--text-muted); padding-left:10px;">URL:</label>
+                        <input type="text" id="urlInput" placeholder="在此粘贴视频网址 (例如: https://hanime1.me/watch?v=...)">
+                        <button id="parseBtn" class="btn-primary">嗅探解析</button>
+                    </div>
+                    <div class="search-toggle-wrapper">
+                        <button id="toggleSearchBtn" class="search-toggle-btn" title="显示/隐藏搜索栏">
+                            <span class="toggle-icon">▲</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Content Area -->
+            <div class="content-area">
+                <!-- Left Side: Main Preview / Player -->
+                <section class="main-preview" id="mainPreview">
+                    <div class="empty-state" id="emptyState">
+                        <div class="empty-icon">🎬</div>
+                        <h2>粘贴链接进入嗅探状态</h2>
+                        <p>支持原生 M3U8 流体解码及多核免代理直链萃取</p>
+                    </div>
+                    
+                    <div class="preview-content hidden" id="previewContent">
+                        <!-- Video Player Wrapper -->
+                        <div class="video-player-wrapper hidden" id="playerWrapper">
+                            <video id="videoPlayer" controls crossorigin playsinline></video>
+                            <div class="player-close-btn" id="closePlayerBtn">✖ 退出播放</div>
+                        </div>
+
+                        <!-- Static Cover Wrapper -->
+                        <div class="video-cover-wrapper" id="coverWrapper">
+                            <img id="mainCover" src="" alt="Video Cover" class="video-cover">
+                            <div class="play-overlay" id="playVideoBtn">
+                                <div class="play-btn-circle">▶</div>
+                            </div>
+                            <div class="quality-badge" id="mainQuality">HQ</div>
+                        </div>
+
+                        <h1 class="video-title" id="mainTitle">Loading...</h1>
+                        
+                        <div class="action-bar">
+                            <button class="btn-download" id="startDownloadBtn">
+                                <span class="icon">⬇️</span> 极速接力下载
+                            </button>
+                            <button class="btn-secondary" id="downloadSeriesBtn">一键下载系列</button>
+                            <button class="btn-secondary" id="copyLinkBtn">复制 M3U8/MP4 源</button>
+                        </div>
+                        
+                        <div class="status-panel-wrapper" id="statusPanelWrapper">
+                            <div class="status-panel" id="statusPanelInner">
+                                <div class="status-panel-header">
+                                    <h3>后台引力波捕获日志 (Log)</h3>
+                                </div>
+                                <div class="log-console" id="logConsole"></div>
+                            </div>
+                            <div class="search-toggle-wrapper">
+                                <button id="toggleLogBtn" class="search-toggle-btn" title="显示/隐藏日志">
+                                    <span class="toggle-icon">▲</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Right Side: Playlist Series -->
+                <aside class="playlist-sidebar">
+                    <div class="sidebar-header">
+                        <h2>影片序列 (连载)</h2>
+                        <span class="badge" id="playlistCount">0</span>
+                    </div>
+                    <div class="playlist-items" id="playlistContainer">
+                        <div class="empty-playlist">暂无相关视频</div>
+                    </div>
+                </aside>
+            </div>
+        </section>
+
+    </div>
+
+    <!-- Modals -->
+    <!-- CF Challenge Modal -->
+    <div class="modal hidden" id="cfModal">
+        <div class="modal-content">
+            <h2>🛡️ 正在打破 CF 壁垒</h2>
+            <p>若弹出浏览器及音频提示，请在视窗中<b>手动完成人机验证</b>。<br>完成后此窗口将自动关闭并继续流程。</p>
+            <div class="loader" style="margin:2rem auto 0;"></div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="modal hidden" id="settingsModal">
+        <div class="modal-content text-left" style="width:500px">
+            <h2 style="margin-bottom: 2rem;">⚙️ 全局配置设定</h2>
+            
+            <div class="form-group">
+                <label for="downloadDir">目标下载目录 (绝对路径)</label>
+                <input type="text" id="downloadDir" placeholder="D:\AnimeDownloads" style="width: 100%;">
+                <small class="help-text">设置后，后端的发起的原生多任务下载将自动保存至此文件夹。</small>
+            </div>
+
+            <div class="action-bar" style="justify-content: space-between; margin-top: 2rem; margin-bottom: 0;">
+                <button class="btn-secondary" id="clearCacheBtn" title="清除浏览器记忆并重启抓取引擎" style="background: rgba(255, 100, 100, 0.1); border-color: rgba(255, 100, 100, 0.3); color: #ff6b6b;">🧹 清除本地缓存</button>
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn-secondary" id="closeSettingsBtn">取消</button>
+                    <button class="btn-primary" id="saveSettingsBtn">💾 保存设定</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal hidden" id="downloadCenterModal">
+        <div class="modal-content download-center-modal text-left">
+            <div class="download-center-header">
+                <div>
+                    <h2>下载中心</h2>
+                    <p id="downloadCenterSummary">实时查看任务队列、进度和历史记录</p>
+                </div>
+                <button class="btn-secondary" id="closeDownloadCenterBtn">关闭</button>
+            </div>
+
+            <div class="download-center-grid">
+                <section class="download-board">
+                    <div class="download-board-header">
+                        <h3>进行中 / 排队</h3>
+                        <span class="badge" id="downloadLiveCount">0</span>
+                    </div>
+                    <div class="download-list" id="downloadQueueList">
+                        <div class="download-empty">当前没有正在执行的下载任务</div>
+                    </div>
+                </section>
+
+                <section class="download-board">
+                    <div class="download-board-header">
+                        <h3>历史记录</h3>
+                        <span class="badge" id="downloadHistoryCount">0</span>
+                    </div>
+                    <div class="download-list" id="downloadHistoryList">
+                        <div class="download-empty">尚未产生下载历史</div>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js?v=1.2"></script>
+</body>
+</html>
