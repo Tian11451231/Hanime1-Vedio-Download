@@ -83,7 +83,7 @@ class HanimeBrowseServiceTest {
         stubSerializedExecution(browserService);
 
         when(browserService.createPage()).thenReturn(firstPage, secondPage);
-        when(browserService.isHeadless()).thenReturn(true);
+        when(browserService.hasVerifiedSession()).thenReturn(true);
         doThrow(new RuntimeException("timeout")).when(firstPage).waitForSelector(any(String.class), any(Page.WaitForSelectorOptions.class));
         when(secondPage.content()).thenReturn(html);
 
@@ -110,7 +110,7 @@ class HanimeBrowseServiceTest {
         stubSerializedExecution(browserService);
 
         when(browserService.createPage()).thenReturn(firstPage, secondPage);
-        when(browserService.isHeadless()).thenReturn(true);
+        when(browserService.hasVerifiedSession()).thenReturn(true);
         doThrow(new RuntimeException("timeout")).when(firstPage).waitForSelector(any(String.class), any(Page.WaitForSelectorOptions.class));
         doThrow(new com.microsoft.playwright.PlaywrightException("Playwright connection closed")).when(firstPage).close();
         when(secondPage.content()).thenReturn(html);

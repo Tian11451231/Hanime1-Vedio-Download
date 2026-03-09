@@ -38,7 +38,7 @@ public class HanimeParserService {
                         page.waitForSelector(".video-details-wrapper, #player, .title, h1.title, h3.title", new Page.WaitForSelectorOptions().setTimeout(20000));
                     } catch (Exception e) {
                         System.out.println("Wait timeout (20s). checking if stuck in background mode...");
-                        if (browserService.isHeadless()) {
+                        if (browserService.hasVerifiedSession()) {
                             verificationRetryNeeded = true;
                         } else {
                             System.out.println("Proceeding with current content (might be blocked by CF)...");
@@ -89,6 +89,7 @@ public class HanimeParserService {
                     }
 
                     result.put("playlist", extractPlaylist(html, url));
+                    result.put("relatedVideos", extractRelatedVideos(html, url));
 
                     if (bestStream != null && !bestStream.trim().isEmpty()) {
                         newlyVerified = browserService.markAsVerified();
@@ -258,61 +259,36 @@ public class HanimeParserService {
 
     private List<Map<String, String>> extractPlaylist(String html, String currentUrl) {
         Document doc = Jsoup.parse(html);
-        List<Map<String, String>> playlist = new ArrayList<>();
-        Set<String> seenUrls = new HashSet<>();
+        return extractVideoCards(doc.select("#video-playlist-wrapper .related-watch-wrap, #video-playlist-wrapper .multiple-link-wrapper, .related-watch-wrap.multiple-link-wrapper"), currentUrl);
+    }
 
-        Elements relatedCards = doc.select("#video-playlist-wrapper .related-watch-wrap, #video-playlist-wrapper .multiple-link-wrapper, .related-watch-wrap.multiple-link-wrapper");
-        for (Element card : relatedCards) {
-            Element linkEl = card.selectFirst("a.overlay[href*='watch?v='], a[href*='watch?v=']");
-            if (linkEl == null) {
-                continue;
-            }
+    private List<Map<String, String>> extractRelatedVideos(String html, String currentUrl) {
+        Document doc = Jsoup.parse(html);
+        List<Map<String, String>> relatedVideos = new ArrayList<>();
 
-            String link = absolutizeWatchUrl(linkEl.attr("href"), currentUrl);
-            if (link == null || seenUrls.contains(link)) {
-                continue;
-            }
-
-            Element titleEl = card.selectFirst(".card-mobile-title, .video-title, .title");
-            Element imgEl = selectBestPlaylistImage(card.select("img[data-src], img[src]"));
-            String title = titleEl != null ? TitleTextNormalizer.normalize(titleEl.text()) : "";
-            String thumbnail = extractImageUrl(imgEl);
-            if (title.isBlank() || thumbnail.isBlank()) {
-                continue;
-            }
-
-            playlist.add(buildPlaylistItem(link, thumbnail, title));
-            seenUrls.add(link);
+        Elements relatedTabCards = doc.select("#related-tabcontent > div.row a[href*='watch?v='], #related-tabcontent div.row a[href*='watch?v=']");
+        relatedVideos.addAll(extractVideoCards(relatedTabCards, currentUrl));
+        if (!relatedVideos.isEmpty()) {
+            return relatedVideos;
         }
 
-        if (!playlist.isEmpty()) {
-            return playlist;
+        Elements sectionRoots = doc.select("section, .home-rows-videos-wrapper, .home-rows-videos, .video-section, .content-section, .container");
+        for (Element section : sectionRoots) {
+            if (!looksLikeRelatedSection(section) || shouldExcludeSection(section)) {
+                continue;
+            }
+            relatedVideos.addAll(extractVideoCards(section.select("a[href*='watch?v=']"), currentUrl));
+            if (!relatedVideos.isEmpty()) {
+                break;
+            }
         }
 
-        Elements listItems = doc.select("a[href*='watch?v=']");
-        for (Element a : listItems) {
-            String link = absolutizeWatchUrl(a.attr("href"), currentUrl);
-            if (link == null || seenUrls.contains(link)) {
-                continue;
-            }
-
-            Element img = selectBestPlaylistImage(a.select("img[data-src], img[src]"));
-            Element titleDiv = a.selectFirst(".video-title, .title, .card-mobile-title");
-            if (img == null || titleDiv == null) {
-                continue;
-            }
-
-            String thumbnail = extractImageUrl(img);
-            String title = TitleTextNormalizer.normalize(titleDiv.text());
-            if (thumbnail.isBlank() || title.isBlank()) {
-                continue;
-            }
-
-            playlist.add(buildPlaylistItem(link, thumbnail, title));
-            seenUrls.add(link);
+        if (!relatedVideos.isEmpty()) {
+            return relatedVideos;
         }
 
-        return playlist;
+        Elements fallbackCards = doc.select(".home-rows-videos-wrapper a[href*='watch?v='], .home-rows-videos a[href*='watch?v=']");
+        return extractVideoCards(fallbackCards, currentUrl);
     }
 
     private Map<String, String> buildPlaylistItem(String link, String thumbnail, String title) {
@@ -365,6 +341,73 @@ public class HanimeParserService {
             }
         }
         return fallback;
+    }
+
+    private List<Map<String, String>> extractVideoCards(Elements cardElements, String currentUrl) {
+        List<Map<String, String>> items = new ArrayList<>();
+        Set<String> seenUrls = new HashSet<>();
+
+        for (Element card : cardElements) {
+            Element linkEl = "a".equals(card.tagName()) ? card : card.selectFirst("a[href*='watch?v=']");
+            if (linkEl == null) {
+                continue;
+            }
+
+            String link = absolutizeWatchUrl(linkEl.attr("href"), currentUrl);
+            if (link == null || seenUrls.contains(link)) {
+                continue;
+            }
+
+            Element scope = "a".equals(card.tagName()) ? card : linkEl;
+            Element titleEl = card.selectFirst(".home-rows-videos-title, .card-mobile-title, .video-title, .title, [title]");
+            if (titleEl == null) {
+                titleEl = scope.selectFirst(".home-rows-videos-title, .card-mobile-title, .video-title, .title, [title]");
+            }
+            Element imgEl = selectBestPlaylistImage(card.select("img[data-src], img[src]"));
+            if (imgEl == null) {
+                imgEl = selectBestPlaylistImage(scope.select("img[data-src], img[src]"));
+            }
+
+            String title = extractCardTitle(titleEl, scope);
+            String thumbnail = extractImageUrl(imgEl);
+            if (title.isBlank() || thumbnail.isBlank()) {
+                continue;
+            }
+
+            items.add(buildPlaylistItem(link, thumbnail, title));
+            seenUrls.add(link);
+        }
+
+        return items;
+    }
+
+    private String extractCardTitle(Element titleEl, Element fallbackScope) {
+        if (titleEl != null) {
+            if (titleEl.hasAttr("title") && !titleEl.attr("title").isBlank()) {
+                return TitleTextNormalizer.normalize(titleEl.attr("title"));
+            }
+            String text = titleEl.text();
+            if (!text.isBlank()) {
+                return TitleTextNormalizer.normalize(text);
+            }
+        }
+
+        if (fallbackScope != null && fallbackScope.hasAttr("title") && !fallbackScope.attr("title").isBlank()) {
+            return TitleTextNormalizer.normalize(fallbackScope.attr("title"));
+        }
+        return "";
+    }
+
+    private boolean looksLikeRelatedSection(Element section) {
+        String heading = section.select("h1, h2, h3, h4, .section-title, .home-rows-title").text();
+        String normalized = heading == null ? "" : heading.replaceAll("\\s+", "");
+        return normalized.contains("相关") || normalized.contains("相關") || normalized.contains("推荐") || normalized.contains("推薦");
+    }
+
+    private boolean shouldExcludeSection(Element section) {
+        String heading = section.select("h1, h2, h3, h4, .section-title, .home-rows-title").text();
+        String normalized = heading == null ? "" : heading.replaceAll("\\s+", "");
+        return normalized.contains("评论") || normalized.contains("評論") || normalized.contains("新番资讯") || normalized.contains("新番資訊");
     }
 
     private String absolutizeWatchUrl(String href, String currentUrl) {

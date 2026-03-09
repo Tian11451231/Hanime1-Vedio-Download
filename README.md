@@ -1,4 +1,4 @@
-# Hanime Media Center hanime1视频观看下载器
+# Hanime Media Center
 
 ## 1. 项目怎么使用
 
@@ -7,6 +7,13 @@
 1. 双击 HanimeMediaCenter.exe
 2. 程序会在本机启动一个本地 Web 服务，并自动释放运行所需文件到用户目录。
 3. 启动完成后，在浏览器访问程序启动时显示的本地地址即可使用（你的IP地址:58080）。
+
+### 方式一补充：从源码生成单文件 EXE
+
+1. 确保本机安装 JDK 21+，并且系统内存在 .NET Framework C# 编译器（默认 Windows 自带）。
+2. 在项目根目录执行 `powershell -ExecutionPolicy Bypass -File "scripts/packaging/build-single-exe.ps1"`。
+3. 构建完成后会生成 `dist/HanimeMediaCenter.exe`。
+4. 双击 `dist/HanimeMediaCenter.exe` 后，程序会把运行时文件释放到 `%LOCALAPPDATA%\HanimeMediaCenter\bundle`，再自动启动应用。
 
 ### 方式二：通过源码运行
 
@@ -33,6 +40,7 @@
 - **本项目定位**：这是一个本地运行的 Web 工具，不是云端服务。
 - **配置兼容**：项目优先使用 `settings.json`，`config.json` 作为旧版兼容配置保留。
 - **端口**：程序使用的本地端口以实际启动输出为准；如果端口被占用，需根据运行日志处理。 
+- **浏览器依赖**：单文件 EXE 仍然依赖系统已安装的 Edge 或 Chrome，因为页面抓取走的是系统浏览器通道。
 
 ## 2. 项目使用的技术
 

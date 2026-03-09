@@ -347,7 +347,9 @@ body {
 .search-box:focus-within { border-color: rgba(255, 75, 75, 0.5); box-shadow: 0 15px 40px rgba(255, 75, 75, 0.15); transform: translateY(-2px); }
 input { flex: 1; background: transparent; border: none; color: white; padding: 0.8rem 1rem; font-size: 1.1rem; outline: none; }
 
-.content-area { display: grid; grid-template-columns: 1fr 380px; gap: 2.5rem; align-items: start; }
+.parser-layout { display: flex; flex-direction: column; gap: 2.5rem; }
+
+.content-area { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 2.5rem; align-items: start; }
 
 .main-preview {
     background: var(--surface); border: 1px solid var(--border);
@@ -474,11 +476,41 @@ video { width: 100%; height: 100%; display: block; }
 .log-line.warning { color: #fbbf24; }
 .log-line.info { color: #60a5fa; }
 
+.related-videos-section {
+    background: var(--surface); border: 1px solid var(--border);
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border-radius: var(--radius-lg); padding: 2rem 2.2rem 2.4rem;
+    box-shadow: 0 15px 40px rgba(0,0,0,0.25);
+}
+
+.section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.section-header h2 {
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: #fff;
+}
+
+.related-video-grid {
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+.related-grid-item .grid-title {
+    min-height: 4.8rem;
+}
+
 /* Right Sidebar Playlist */
 .playlist-sidebar {
     background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
     backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); box-shadow: 0 15px 40px rgba(0,0,0,0.3);
-    padding: 1.8rem; height: 100%; max-height: 800px; display: flex; flex-direction: column; position: sticky; top: 100px;
+    padding: 1.8rem; height: fit-content; display: flex; flex-direction: column; position: static;
+    max-height: var(--playlist-max-height, 560px);
 }
 .sidebar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.8rem; padding-bottom: 1.2rem; border-bottom: 1px solid rgba(255,255,255,0.05); }
 .sidebar-header h2 { font-size: 1.3rem; font-weight: 700; color: #fff; }
@@ -569,7 +601,7 @@ video { width: 100%; height: 100%; display: block; }
 @media (max-width: 1024px) {
     .landing-cards, .content-area, .browse-layout, .download-center-grid { grid-template-columns: 1fr; display: grid; }
     .landing-cards { display: grid; }
-    .playlist-sidebar { position: static; max-height: none; }
+    .playlist-sidebar { max-height: none; }
 }
 @media (max-width: 768px) {
     .top-nav, .app-container { padding: 1.2rem; }

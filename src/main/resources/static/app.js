@@ -38,6 +38,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const mainCover = document.getElementById("mainCover");
     const playlistContainer = document.getElementById("playlistContainer");
     const playlistCount = document.getElementById("playlistCount");
+    const relatedVideosSection = document.getElementById("relatedVideosSection");
+    const relatedVideoGrid = document.getElementById("relatedVideoGrid");
+    const relatedVideoCount = document.getElementById("relatedVideoCount");
+    const playlistSidebar = document.querySelector(".playlist-sidebar");
     const startDownloadBtn = document.getElementById("startDownloadBtn");
     const downloadSeriesBtn = document.getElementById("downloadSeriesBtn");
     const copyLinkBtn = document.getElementById("copyLinkBtn");
@@ -58,6 +62,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let currentVideoData = null;
     let currentBrowseVideos = [];
     let currentPlaylistItems = [];
+    let currentRelatedVideos = [];
     let downloadSnapshot = { activeTasks: [], queuedTasks: [], historyTasks: [] };
     let downloadEventSource = null;
     let downloadReconnectTimer = null;
@@ -324,6 +329,50 @@ document.addEventListener("DOMContentLoaded", () => {
         downloadSeriesBtn.textContent = count > 1 ? `一键下载系列 (${count})` : "一键下载系列";
     }
 
+    function updatePlaylistPanelLayout() {
+        if (!playlistSidebar) {
+            return;
+        }
+        if (window.innerWidth <= 1024) {
+            playlistSidebar.style.removeProperty("--playlist-max-height");
+            return;
+        }
+
+        const visibleCount = Math.max(currentPlaylistItems.length, 1);
+        const computedHeight = 180 + (Math.min(visibleCount, 4) * 96);
+        const clampedHeight = Math.min(Math.max(computedHeight, 280), 560);
+        playlistSidebar.style.setProperty("--playlist-max-height", `${clampedHeight}px`);
+    }
+
+    function renderRelatedVideoGrid(videos) {
+        currentRelatedVideos = Array.isArray(videos) ? videos : [];
+        relatedVideoCount.textContent = currentRelatedVideos.length;
+
+        if (currentRelatedVideos.length === 0) {
+            relatedVideoGrid.innerHTML = `<div class="empty-playlist">暂无相关视频</div>`;
+            return;
+        }
+
+        relatedVideoGrid.innerHTML = "";
+        currentRelatedVideos.forEach((item) => {
+            const card = document.createElement("div");
+            card.className = "grid-item related-grid-item";
+            card.innerHTML = `
+                <div class="grid-thumb-container">
+                    <img src="/api/proxy/image?url=${encodeURIComponent(item.thumbnail)}" class="grid-thumb" alt="cover">
+                </div>
+                <div class="grid-title" title="${escapeHtml(item.title || "")}">${escapeHtml(item.title || "未命名视频")}</div>
+            `;
+            card.addEventListener("click", () => {
+                urlInput.value = item.url;
+                parseBtn.click();
+                window.scrollTo({ top: 0, behavior: "smooth" });
+            });
+            relatedVideoGrid.appendChild(card);
+        });
+
+    }
+
     // ---- Navigation / SPA Routing ----
     function switchView(viewId, pushState = true) {
         viewLanding.classList.add("hidden");
@@ -524,9 +573,13 @@ document.addEventListener("DOMContentLoaded", () => {
         currentRawVideoUrl = "";
         currentVideoUrl = "";
         currentPlaylistItems = [];
+        currentRelatedVideos = [];
         playlistCount.textContent = "0";
-        playlistContainer.innerHTML = `<div class="empty-playlist">暂无相关视频</div>`;
+        playlistContainer.innerHTML = `<div class="empty-playlist">暂无影片序列</div>`;
+        relatedVideoCount.textContent = "0";
+        relatedVideoGrid.innerHTML = `<div class="empty-playlist">暂无相关视频</div>`;
         updateSeriesDownloadButton();
+        updatePlaylistPanelLayout();
 
         log("初始化探针引力引擎...", "info");
         log("调用本地代理规避侦测...", "info");
@@ -608,6 +661,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 playlistContainer.appendChild(el);
             });
         }
+
+        updatePlaylistPanelLayout();
+
+        renderRelatedVideoGrid(data.relatedVideos || []);
     }
 
     startDownloadBtn.addEventListener("click", async () => {
@@ -840,5 +897,6 @@ document.addEventListener("DOMContentLoaded", () => {
     renderDownloadCenter();
     fetchDownloadSnapshot();
     connectDownloadStream();
+    window.addEventListener("resize", updatePlaylistPanelLayout);
 
 });

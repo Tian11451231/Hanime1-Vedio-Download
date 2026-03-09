@@ -2,6 +2,8 @@ package com.wangver.hanime.service;
 
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Method;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -57,5 +59,18 @@ class PlaywrightBrowserServiceTest {
 
         assertEquals(1, firstOrder.get());
         assertEquals(2, secondOrder.get());
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void keepsBrowserWindowVisibleAfterVerification() throws Exception {
+        PlaywrightBrowserService service = new PlaywrightBrowserService();
+        Method method = PlaywrightBrowserService.class.getDeclaredMethod("buildLaunchArgs", boolean.class);
+        method.setAccessible(true);
+
+        List<String> args = (List<String>) method.invoke(service, true);
+
+        assertTrue(args.contains("--disable-blink-features=AutomationControlled"));
+        assertFalse(args.contains("--window-position=-32000,-32000"));
     }
 }

@@ -117,67 +117,79 @@
             </div>
 
             <!-- Main Content Area -->
-            <div class="content-area">
-                <!-- Left Side: Main Preview / Player -->
-                <section class="main-preview" id="mainPreview">
-                    <div class="empty-state" id="emptyState">
-                        <div class="empty-icon">🎬</div>
-                        <h2>粘贴链接进入嗅探状态</h2>
-                        <p>支持原生 M3U8 流体解码及多核免代理直链萃取</p>
-                    </div>
-                    
-                    <div class="preview-content hidden" id="previewContent">
-                        <!-- Video Player Wrapper -->
-                        <div class="video-player-wrapper hidden" id="playerWrapper">
-                            <video id="videoPlayer" controls crossorigin playsinline></video>
-                            <div class="player-close-btn" id="closePlayerBtn">✖ 退出播放</div>
+            <div class="parser-layout">
+                <div class="content-area">
+                    <!-- Left Side: Main Preview / Player -->
+                    <section class="main-preview" id="mainPreview">
+                        <div class="empty-state" id="emptyState">
+                            <div class="empty-icon">🎬</div>
+                            <h2>粘贴链接进入嗅探状态</h2>
+                            <p>支持原生 M3U8 流体解码及多核免代理直链萃取</p>
                         </div>
-
-                        <!-- Static Cover Wrapper -->
-                        <div class="video-cover-wrapper" id="coverWrapper">
-                            <img id="mainCover" src="" alt="Video Cover" class="video-cover">
-                            <div class="play-overlay" id="playVideoBtn">
-                                <div class="play-btn-circle">▶</div>
+                        
+                        <div class="preview-content hidden" id="previewContent">
+                            <!-- Video Player Wrapper -->
+                            <div class="video-player-wrapper hidden" id="playerWrapper">
+                                <video id="videoPlayer" controls crossorigin playsinline></video>
+                                <div class="player-close-btn" id="closePlayerBtn">✖ 退出播放</div>
                             </div>
-                            <div class="quality-badge" id="mainQuality">HQ</div>
-                        </div>
 
-                        <h1 class="video-title" id="mainTitle">Loading...</h1>
-                        
-                        <div class="action-bar">
-                            <button class="btn-download" id="startDownloadBtn">
-                                <span class="icon">⬇️</span> 极速接力下载
-                            </button>
-                            <button class="btn-secondary" id="downloadSeriesBtn">一键下载系列</button>
-                            <button class="btn-secondary" id="copyLinkBtn">复制 M3U8/MP4 源</button>
-                        </div>
-                        
-                        <div class="status-panel-wrapper" id="statusPanelWrapper">
-                            <div class="status-panel" id="statusPanelInner">
-                                <div class="status-panel-header">
-                                    <h3>后台引力波捕获日志 (Log)</h3>
+                            <!-- Static Cover Wrapper -->
+                            <div class="video-cover-wrapper" id="coverWrapper">
+                                <img id="mainCover" src="" alt="Video Cover" class="video-cover">
+                                <div class="play-overlay" id="playVideoBtn">
+                                    <div class="play-btn-circle">▶</div>
                                 </div>
-                                <div class="log-console" id="logConsole"></div>
+                                <div class="quality-badge" id="mainQuality">HQ</div>
                             </div>
-                            <div class="search-toggle-wrapper">
-                                <button id="toggleLogBtn" class="search-toggle-btn" title="显示/隐藏日志">
-                                    <span class="toggle-icon">▲</span>
+
+                            <h1 class="video-title" id="mainTitle">Loading...</h1>
+                            
+                            <div class="action-bar">
+                                <button class="btn-download" id="startDownloadBtn">
+                                    <span class="icon">⬇️</span> 极速接力下载
                                 </button>
+                                <button class="btn-secondary" id="downloadSeriesBtn">一键下载系列</button>
+                                <button class="btn-secondary" id="copyLinkBtn">复制 M3U8/MP4 源</button>
+                            </div>
+                            
+                            <div class="status-panel-wrapper" id="statusPanelWrapper">
+                                <div class="status-panel" id="statusPanelInner">
+                                    <div class="status-panel-header">
+                                        <h3>后台引力波捕获日志 (Log)</h3>
+                                    </div>
+                                    <div class="log-console" id="logConsole"></div>
+                                </div>
+                                <div class="search-toggle-wrapper">
+                                    <button id="toggleLogBtn" class="search-toggle-btn" title="显示/隐藏日志">
+                                        <span class="toggle-icon">▲</span>
+                                    </button>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                </section>
+                    </section>
 
-                <!-- Right Side: Playlist Series -->
-                <aside class="playlist-sidebar">
-                    <div class="sidebar-header">
-                        <h2>影片序列 (连载)</h2>
-                        <span class="badge" id="playlistCount">0</span>
+                    <!-- Right Side: Playlist Series -->
+                    <aside class="playlist-sidebar">
+                        <div class="sidebar-header">
+                            <h2>影片序列 (连载)</h2>
+                            <span class="badge" id="playlistCount">0</span>
+                        </div>
+                        <div class="playlist-items" id="playlistContainer">
+                            <div class="empty-playlist">暂无相关视频</div>
+                        </div>
+                    </aside>
+                </div>
+
+                <section class="related-videos-section" id="relatedVideosSection">
+                    <div class="section-header">
+                        <h2>相关视频</h2>
+                        <span class="badge" id="relatedVideoCount">0</span>
                     </div>
-                    <div class="playlist-items" id="playlistContainer">
+                    <div class="video-grid related-video-grid" id="relatedVideoGrid">
                         <div class="empty-playlist">暂无相关视频</div>
                     </div>
-                </aside>
+                </section>
             </div>
         </section>
 

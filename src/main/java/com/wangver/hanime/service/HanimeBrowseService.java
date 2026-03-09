@@ -42,7 +42,7 @@ public class HanimeBrowseService {
                                     new Page.WaitForSelectorOptions().setState(com.microsoft.playwright.options.WaitForSelectorState.ATTACHED).setTimeout(20000));
                         } catch (Exception e) {
                             System.out.println("Wait timeout (20s). Checking if we are stuck in background mode...");
-                            if (browserService.isHeadless()) {
+                            if (browserService.hasVerifiedSession()) {
                                 System.out.println("Likely encountered CF in background mode. Triggering headful restart.");
                                 verificationRetryNeeded = true;
                             } else {
@@ -67,13 +67,6 @@ public class HanimeBrowseService {
 
                         if (!grid.isEmpty()) {
                             newlyVerified = browserService.markAsVerified();
-                        } else {
-                            try {
-                                java.nio.file.Files.writeString(java.nio.file.Paths.get("debug_browse.html"), html);
-                                System.out.println("Wrote empty grid HTML to debug_browse.html");
-                            } catch (Exception e) {
-                                // ignore debug write failures
-                            }
                         }
 
                         break;

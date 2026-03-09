@@ -44,18 +44,13 @@ public class PlaywrightBrowserService {
         java.nio.file.Path verifiedMarker = AppPaths.playwrightVerifiedFile();
         boolean isVerified = java.nio.file.Files.exists(verifiedMarker);
         
-        System.out.println("Cloudflare Verified Status: " + isVerified + " (Off-screen: " + isVerified + ")");
+        System.out.println("Cloudflare Verified Status: " + isVerified + " (Visible window: true)");
 
         BrowserType.LaunchPersistentContextOptions options = new BrowserType.LaunchPersistentContextOptions()
             .setHeadless(false) // Never truly headless because CF blocks headless Chromium
             .setChannel("msedge");
 
-        java.util.List<String> args = new java.util.ArrayList<>();
-        args.add("--disable-blink-features=AutomationControlled");
-        if (isVerified) {
-            args.add("--window-position=-32000,-32000"); // Hide window off-screen to not bother the user
-        }
-        options.setArgs(args);
+        options.setArgs(buildLaunchArgs(isVerified));
 
         try {
             java.nio.file.Path dataPath = AppPaths.playwrightDataDir();
@@ -84,7 +79,7 @@ public class PlaywrightBrowserService {
             java.nio.file.Path verifiedMarker = AppPaths.playwrightVerifiedFile();
             if (!java.nio.file.Files.exists(verifiedMarker)) {
                 java.nio.file.Files.createFile(verifiedMarker);
-                System.out.println("Browser marked as VERIFIED. Next launch will be headless.");
+                System.out.println("Browser marked as VERIFIED. Next launch will stay visible and reuse the session.");
                 return true;
             }
         } catch (Exception e) {
@@ -95,7 +90,7 @@ public class PlaywrightBrowserService {
 
     public synchronized void restartIfNewlyVerified(boolean newlyVerified) {
         if (newlyVerified) {
-            System.out.println("Cloudflare verified! Restarting browser off-screen in background...");
+            System.out.println("Cloudflare verified! Restarting browser with the refreshed persistent session...");
             close();
             init();
         }
@@ -115,8 +110,18 @@ public class PlaywrightBrowserService {
     }
 
     public boolean isHeadless() {
+        return hasVerifiedSession();
+    }
+
+    public boolean hasVerifiedSession() {
         java.nio.file.Path verifiedMarker = AppPaths.playwrightVerifiedFile();
         return java.nio.file.Files.exists(verifiedMarker);
+    }
+
+    List<String> buildLaunchArgs(boolean isVerified) {
+        java.util.List<String> args = new java.util.ArrayList<>();
+        args.add("--disable-blink-features=AutomationControlled");
+        return java.util.List.copyOf(args);
     }
 
     public synchronized Page createPage() {

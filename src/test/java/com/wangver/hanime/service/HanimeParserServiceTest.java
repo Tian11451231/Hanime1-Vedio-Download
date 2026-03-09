@@ -48,6 +48,56 @@ class HanimeParserServiceTest {
                 + "</body></html>";
     }
 
+    private static String sampleRelatedVideosHtml() {
+        return "<html><body>"
+                + "<section class='home-rows-videos-wrapper'>"
+                + "  <h3>新番资讯</h3>"
+                + "  <a href='/watch?v=9001'>"
+                + "    <img src='https://cdn.example.com/news-thumb.jpg'>"
+                + "    <div class='home-rows-videos-title'>不该展示的新番资讯</div>"
+                + "  </a>"
+                + "</section>"
+                + "<section class='home-rows-videos-wrapper'>"
+                + "  <h3>评论</h3>"
+                + "  <a href='/watch?v=9002'>"
+                + "    <img src='https://cdn.example.com/comment-thumb.jpg'>"
+                + "    <div class='home-rows-videos-title'>不该展示的评论卡片</div>"
+                + "  </a>"
+                + "</section>"
+                + "<section class='home-rows-videos-wrapper'>"
+                + "  <h3>相关视频</h3>"
+                + "  <a href='/watch?v=4001'>"
+                + "    <img src='https://cdn.example.com/related-1.jpg'>"
+                + "    <div class='home-rows-videos-title'>相关视频一</div>"
+                + "  </a>"
+                + "  <a href='https://hanime1.me/watch?v=4002'>"
+                + "    <img data-src='https://cdn.example.com/related-2.jpg'>"
+                + "    <div class='home-rows-videos-title'>相关视频二</div>"
+                + "  </a>"
+                + "</section>"
+                + "</body></html>";
+    }
+
+    private static String sampleRelatedTabContentHtml() {
+        return "<html><body>"
+                + "<div id='related-tabcontent'>"
+                + "  <div class='row'>"
+                + "    <div class='col-xs-6 col-sm-4 col-md-3'>"
+                + "      <a href='/watch?v=143645' class='related-card'>"
+                + "        <img data-src='https://cdn.example.com/tab-related-1.jpg' alt='相关卡片一'>"
+                + "        <div class='card-mobile-title'>相关卡片一</div>"
+                + "      </a>"
+                + "    </div>"
+                + "    <div class='col-xs-6 col-sm-4 col-md-3'>"
+                + "      <a href='https://hanime1.me/watch?v=143646' class='related-card' title='相关卡片二'>"
+                + "        <img src='https://cdn.example.com/tab-related-2.jpg'>"
+                + "      </a>"
+                + "    </div>"
+                + "  </div>"
+                + "</div>"
+                + "</body></html>";
+    }
+
     private static void injectBrowserService(HanimeParserService service, PlaywrightBrowserService browserService) throws Exception {
         Field field = HanimeParserService.class.getDeclaredField("browserService");
         field.setAccessible(true);
@@ -234,6 +284,46 @@ class HanimeParserServiceTest {
                 && "JUR-556 我的新媽媽加奈就在我眼前被輪姦了-水戸かな".equals(item.get("title"))));
     }
 
+    @SuppressWarnings("unchecked")
+    @Test
+    void extractsRelatedVideosWithoutCommentsOrNewsCards() throws Exception {
+        HanimeParserService service = new HanimeParserService();
+        String html = sampleRelatedVideosHtml();
+
+        Method method = HanimeParserService.class.getDeclaredMethod("extractRelatedVideos", String.class, String.class);
+        method.setAccessible(true);
+
+        List<Map<String, String>> relatedVideos = (List<Map<String, String>>) method.invoke(service, html, "https://hanime1.me/watch?v=166763");
+
+        assertEquals(2, relatedVideos.size());
+        assertEquals("https://hanime1.me/watch?v=4001", relatedVideos.get(0).get("url"));
+        assertEquals("相关视频一", relatedVideos.get(0).get("title"));
+        assertEquals("https://cdn.example.com/related-1.jpg", relatedVideos.get(0).get("thumbnail"));
+        assertEquals("https://hanime1.me/watch?v=4002", relatedVideos.get(1).get("url"));
+        assertEquals("相关视频二", relatedVideos.get(1).get("title"));
+        assertEquals("https://cdn.example.com/related-2.jpg", relatedVideos.get(1).get("thumbnail"));
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void extractsRelatedVideosFromRelatedTabContentRow() throws Exception {
+        HanimeParserService service = new HanimeParserService();
+        String html = sampleRelatedTabContentHtml();
+
+        Method method = HanimeParserService.class.getDeclaredMethod("extractRelatedVideos", String.class, String.class);
+        method.setAccessible(true);
+
+        List<Map<String, String>> relatedVideos = (List<Map<String, String>>) method.invoke(service, html, "https://hanime1.me/watch?v=143644");
+
+        assertEquals(2, relatedVideos.size());
+        assertEquals("https://hanime1.me/watch?v=143645", relatedVideos.get(0).get("url"));
+        assertEquals("相关卡片一", relatedVideos.get(0).get("title"));
+        assertEquals("https://cdn.example.com/tab-related-1.jpg", relatedVideos.get(0).get("thumbnail"));
+        assertEquals("https://hanime1.me/watch?v=143646", relatedVideos.get(1).get("url"));
+        assertEquals("相关卡片二", relatedVideos.get(1).get("title"));
+        assertEquals("https://cdn.example.com/tab-related-2.jpg", relatedVideos.get(1).get("thumbnail"));
+    }
+
     @Test
     void closesPageBeforeRestartingAfterVerification() throws Exception {
         HanimeParserService service = new HanimeParserService();
@@ -267,7 +357,7 @@ class HanimeParserServiceTest {
         stubSerializedExecution(browserService);
 
         when(browserService.createPage()).thenReturn(firstPage, secondPage);
-        when(browserService.isHeadless()).thenReturn(true, false);
+        when(browserService.hasVerifiedSession()).thenReturn(true, false);
         doThrow(new RuntimeException("timeout")).when(firstPage).waitForSelector(any(String.class), any(Page.WaitForSelectorOptions.class));
         doThrow(new com.microsoft.playwright.PlaywrightException("Playwright connection closed")).when(firstPage).close();
         when(secondPage.content()).thenReturn("<html><head><title>Example</title></head><body><h1 class='title'>Example</h1><video><source src='https://cdn.example.com/video-1080p.mp4'></video></body></html>");
