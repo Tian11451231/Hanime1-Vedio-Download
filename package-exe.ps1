@@ -33,8 +33,8 @@ if (-not $jpackage) {
 if (-not $jpackage) { throw "jpackage not found." }
 
 # 5. Create output dir
-$outputDir = "$ProjectRoot\output"
-if (Test-Path $outputDir) { Remove-Item -Path $outputDir -Recurse -Force }
+$outputDir = "$ProjectRoot\dist"
+if (Test-Path $outputDir) { Remove-Item -Path $outputDir -Recurse -ErrorAction SilentlyContinue }
 New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
 
 # 6. Run jpackage
@@ -42,18 +42,26 @@ Write-Host "=== Packaging EXE ===" -ForegroundColor Cyan
 & $jpackage.Source `
     --input $stageDir `
     --main-jar $jarPath.Name `
-    --main-class org.springframework.boot.loader.JarLauncher `
+    --main-class org.springframework.boot.loader.launch.JarLauncher `
     --name "HanimeDownloader" `
-    --type "app-image" `
+    --type "exe" `
     --app-version "1.0.0" `
     --java-options "-Xmx512m" `
+    --java-options "-Djava.awt.headless=true" `
     --dest $outputDir `
     --vendor "HanimeDownloader" `
+    --win-console `
+    --win-dir-chooser `
+    --win-menu `
+    --win-shortcut `
+    --win-per-user-install `
     --verbose
 
 if ($LASTEXITCODE -eq 0) {
+    $installer = Get-ChildItem -Path $outputDir -Filter "*.exe" | Select-Object -First 1
     Write-Host "=== SUCCESS ===" -ForegroundColor Green
-    Write-Host "EXE at: $outputDir\HanimeDownloader\HanimeDownloader.exe" -ForegroundColor Green
+    Write-Host "Installer: $($installer.FullName)" -ForegroundColor Green
+    Write-Host "Size: $([math]::Round($installer.Length/1MB, 1)) MB" -ForegroundColor Green
 } else {
     Write-Host "=== FAILED ===" -ForegroundColor Red
 }
