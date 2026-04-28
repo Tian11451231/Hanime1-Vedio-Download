@@ -7,6 +7,9 @@ import com.wangver.hanime.model.DownloadTaskView;
 import com.wangver.hanime.service.DownloadService;
 import com.wangver.hanime.service.HanimeBrowseService;
 import com.wangver.hanime.service.HanimeParserService;
+import com.wangver.hanime.service.HistoryCoverService;
+import com.wangver.hanime.service.ImageProxyService;
+import com.wangver.hanime.service.LocalCoverService;
 import com.wangver.hanime.service.PlaywrightBrowserService;
 import com.wangver.hanime.service.SettingsManager;
 import org.junit.jupiter.api.Test;
@@ -19,7 +22,10 @@ import java.util.List;
 
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -44,6 +50,15 @@ class ApiControllerTest {
     @MockBean
     private DownloadService downloadService;
 
+    @MockBean
+    private ImageProxyService imageProxyService;
+
+    @MockBean
+    private HistoryCoverService historyCoverService;
+
+    @MockBean
+    private LocalCoverService localCoverService;
+
     @Test
     void clearsCacheAlsoClearsDownloadHistory() throws Exception {
         when(downloadService.clearHistory()).thenReturn(snapshot());
@@ -54,6 +69,33 @@ class ApiControllerTest {
 
         verify(playwrightService).forceCloseAndClearCache();
         verify(downloadService).clearHistory();
+    }
+
+    @Test
+    void proxiesImageWithContentTypeFromImageService() throws Exception {
+        when(imageProxyService.fetchImage("https://cdn.example.com/cover.webp"))
+                .thenReturn(new ImageProxyService.ImageResponse(new byte[]{1, 2, 3}, "image/webp"));
+
+        mockMvc.perform(get("/api/proxy/image").param("url", "https://cdn.example.com/cover.webp"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Type", "image/webp"))
+                .andExpect(content().bytes(new byte[]{1, 2, 3}));
+
+        verify(imageProxyService).fetchImage("https://cdn.example.com/cover.webp");
+    }
+
+    @Test
+    void proxiesHistoryCoverByResolvingThumbnailFromVideoPageUrl() throws Exception {
+        when(historyCoverService.fetchCover("https://hanime1.me/watch?v=102579", null))
+                .thenReturn(new ImageProxyService.ImageResponse(new byte[]{4, 5, 6}, "image/jpeg"));
+
+        mockMvc.perform(get("/api/proxy/history-cover").param("url", "https://hanime1.me/watch?v=102579"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Type", "image/jpeg"))
+                .andExpect(header().string("Cache-Control", "public, max-age=86400"))
+                .andExpect(content().bytes(new byte[]{4, 5, 6}));
+
+        verify(historyCoverService).fetchCover("https://hanime1.me/watch?v=102579", null);
     }
 
     private DownloadSnapshot snapshot() {

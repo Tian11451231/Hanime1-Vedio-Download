@@ -9,18 +9,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-import org.mockito.InOrder;
+import static org.mockito.Mockito.*;
 
 class HanimeBrowseServiceTest {
 
@@ -72,74 +63,24 @@ class HanimeBrowseServiceTest {
     }
 
     @Test
-    void retriesWithFreshPageAfterHeadlessTimeout() throws Exception {
+    void fetchesCategoryViaPlaywrightAndReturnsContent() throws Exception {
         HanimeBrowseService service = new HanimeBrowseService();
         PlaywrightBrowserService browserService = mock(PlaywrightBrowserService.class);
-        Page firstPage = mock(Page.class);
-        Page secondPage = mock(Page.class);
-        String html = sampleBrowseHtml();
-
+        Page page = mock(Page.class);
         injectBrowserService(service, browserService);
         stubSerializedExecution(browserService);
 
-        when(browserService.createPage()).thenReturn(firstPage, secondPage);
-        when(browserService.hasVerifiedSession()).thenReturn(true);
-        doThrow(new RuntimeException("timeout")).when(firstPage).waitForSelector(any(String.class), any(Page.WaitForSelectorOptions.class));
-        when(secondPage.content()).thenReturn(html);
+        when(browserService.createPage()).thenReturn(page);
+        when(page.content()).thenReturn(sampleBrowseHtml());
 
         Map<String, Object> result = service.fetchCategory("Motion Anime", 1);
 
         @SuppressWarnings("unchecked")
         List<Map<String, String>> videos = (List<Map<String, String>>) result.get("videos");
         assertFalse(videos.isEmpty());
-        verify(browserService).forceRestartHeadful();
-        verify(browserService, times(2)).createPage();
-        verify(firstPage).close();
-        verify(secondPage).close();
-    }
-
-    @Test
-    void retriesAfterHeadlessTimeoutEvenIfRestartClosedOriginalPageConnection() throws Exception {
-        HanimeBrowseService service = new HanimeBrowseService();
-        PlaywrightBrowserService browserService = mock(PlaywrightBrowserService.class);
-        Page firstPage = mock(Page.class);
-        Page secondPage = mock(Page.class);
-        String html = sampleBrowseHtml();
-
-        injectBrowserService(service, browserService);
-        stubSerializedExecution(browserService);
-
-        when(browserService.createPage()).thenReturn(firstPage, secondPage);
-        when(browserService.hasVerifiedSession()).thenReturn(true);
-        doThrow(new RuntimeException("timeout")).when(firstPage).waitForSelector(any(String.class), any(Page.WaitForSelectorOptions.class));
-        doThrow(new com.microsoft.playwright.PlaywrightException("Playwright connection closed")).when(firstPage).close();
-        when(secondPage.content()).thenReturn(html);
-
-        assertDoesNotThrow(() -> service.fetchCategory("MMD", 1));
-        verify(browserService).forceRestartHeadful();
-        verify(browserService, times(2)).createPage();
-    }
-
-    @Test
-    void closesPageBeforeRestartingAfterVerification() throws Exception {
-        HanimeBrowseService service = new HanimeBrowseService();
-        PlaywrightBrowserService browserService = mock(PlaywrightBrowserService.class);
-        Page page = mock(Page.class);
-        String html = sampleBrowseHtml();
-
-        injectBrowserService(service, browserService);
-        stubSerializedExecution(browserService);
-
-        when(browserService.createPage()).thenReturn(page);
-        when(browserService.markAsVerified()).thenReturn(true);
-        when(page.content()).thenReturn(html);
-
-        service.fetchCategory("Motion Anime", 1);
-
-        InOrder inOrder = inOrder(browserService, page);
-        inOrder.verify(browserService).markAsVerified();
-        inOrder.verify(page).close();
-        inOrder.verify(browserService).restartIfNewlyVerified(true);
+        assertEquals(1, result.get("currentPage"));
+        verify(browserService).createPage();
+        verify(page).close();
     }
 
     @SuppressWarnings("unchecked")
@@ -172,5 +113,20 @@ class HanimeBrowseServiceTest {
         String url = (String) method.invoke(service, "2D動畫", 3);
 
         assertEquals("https://hanime1.me/search?genre=2D%E5%8B%95%E7%95%AB&page=3", url);
+    }
+
+    @Test
+    void handlesPageTimeoutGracefully() throws Exception {
+        HanimeBrowseService service = new HanimeBrowseService();
+        PlaywrightBrowserService browserService = mock(PlaywrightBrowserService.class);
+        Page page = mock(Page.class);
+        injectBrowserService(service, browserService);
+        stubSerializedExecution(browserService);
+
+        when(browserService.createPage()).thenReturn(page);
+        doThrow(new RuntimeException("timeout")).when(page).waitForSelector(any(String.class), any(Page.WaitForSelectorOptions.class));
+
+        assertThrows(Exception.class, () -> service.fetchCategory("Motion Anime", 1));
+        verify(page).close();
     }
 }

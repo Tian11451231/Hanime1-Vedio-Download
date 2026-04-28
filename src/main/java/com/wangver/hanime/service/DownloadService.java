@@ -41,6 +41,7 @@ public class DownloadService {
 
     private final SettingsManager settingsManager;
     private final DownloadHistoryStore historyStore;
+    private final LocalCoverService localCoverService;
     private final DownloadResolver downloadResolver;
     private final DownloadExecutor downloadExecutor;
     private final BlockingQueue<DownloadTaskState> queue = new LinkedBlockingQueue<>();
@@ -57,11 +58,13 @@ public class DownloadService {
     public DownloadService(
             SettingsManager settingsManager,
             DownloadHistoryStore historyStore,
-            HanimeParserService parserService
+            HanimeParserService parserService,
+            LocalCoverService localCoverService
     ) {
         this(
                 settingsManager,
                 historyStore,
+                localCoverService,
                 request -> resolveWithParser(request, parserService),
                 createDefaultExecutor()
         );
@@ -70,11 +73,13 @@ public class DownloadService {
     DownloadService(
             SettingsManager settingsManager,
             DownloadHistoryStore historyStore,
+            LocalCoverService localCoverService,
             DownloadResolver downloadResolver,
             DownloadExecutor downloadExecutor
     ) {
         this.settingsManager = settingsManager;
         this.historyStore = historyStore;
+        this.localCoverService = localCoverService;
         this.downloadResolver = downloadResolver;
         this.downloadExecutor = downloadExecutor;
         this.history.addAll(historyStore.load());
@@ -86,17 +91,45 @@ public class DownloadService {
             throw new IllegalArgumentException("至少需要一个下载任务");
         }
 
+        int added = 0;
         for (DownloadRequestItem item : request.getItems()) {
+            if (isAlreadyDownloaded(item.getPageUrl())) {
+                continue;
+            }
             DownloadTaskState state = new DownloadTaskState(item, sequence.incrementAndGet());
             tasks.put(state.id, state);
             queue.offer(state);
+            added++;
         }
 
-        broadcastSnapshot();
+        if (added > 0) {
+            broadcastSnapshot();
+        }
         return getSnapshot();
     }
 
-    public DownloadSnapshot getSnapshot() {
+    private boolean isAlreadyDownloaded(String pageUrl) {
+        if (pageUrl == null || pageUrl.isBlank()) return false;
+
+        for (DownloadTaskState task : tasks.values()) {
+            String taskUrl = task.request != null ? task.request.getPageUrl() : null;
+            if (pageUrl.equals(taskUrl)
+                    && task.status != DownloadStatus.CANCELLED
+                    && task.status != DownloadStatus.FAILED) {
+                return true;
+            }
+        }
+
+        for (DownloadTaskView h : history) {
+            if (pageUrl.equals(h.getPageUrl()) && h.getStatus() == DownloadStatus.COMPLETED) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public synchronized DownloadSnapshot getSnapshot() {
         List<DownloadTaskView> activeTasks = tasks.values().stream()
                 .filter(task -> task.id.equals(activeTaskId))
                 .map(DownloadTaskState::toView)
@@ -131,20 +164,23 @@ public class DownloadService {
         return getSnapshot();
     }
 
-    public DownloadSnapshot cancelTask(String taskId) {
+    public synchronized DownloadSnapshot cancelTask(String taskId) {
         DownloadTaskState state = requireTask(taskId);
         if (!Objects.equals(activeTaskId, taskId)) {
-            queue.remove(state);
-            tasks.remove(taskId);
             state.status = DownloadStatus.CANCELLED;
             state.finishedAt = now();
+            queue.remove(state);
             addHistory(state.toView());
             historyStore.save(history);
+            tasks.remove(taskId);
             broadcastSnapshot();
             return getSnapshot();
         }
 
+        state.status = DownloadStatus.CANCELLED;
+        state.errorMessage = "任务正在取消";
         state.control.cancel();
+        broadcastSnapshot();
         return getSnapshot();
     }
 
@@ -223,12 +259,15 @@ public class DownloadService {
         try {
             state.control.throwIfCancelled();
             ResolvedDownload resolvedDownload = resolve(state.request);
+            state.control.awaitIfPaused();
             state.control.throwIfCancelled();
             state.title = resolvedDownload.title();
             state.pageUrl = resolvedDownload.pageUrl();
             state.downloadUrl = resolvedDownload.downloadUrl();
             state.thumbnail = resolvedDownload.thumbnail();
             state.fileName = resolvedDownload.fileName();
+
+            localCoverService.save(state.id, state.thumbnail);
 
             Path targetFile = Path.of(settingsManager.getSettings().getDownloadDirectory()).resolve(resolvedDownload.fileName());
             Path parent = targetFile.getParent();
@@ -241,6 +280,7 @@ public class DownloadService {
 
             downloadExecutor.download(resolvedDownload, targetFile, progress -> updateProgress(state, progress), state.control);
 
+            state.control.throwIfCancelled();
             state.status = DownloadStatus.COMPLETED;
             state.progressPercent = 100.0;
             state.finishedAt = now();
@@ -253,10 +293,12 @@ public class DownloadService {
             state.errorMessage = exception.getMessage();
             state.finishedAt = now();
         } finally {
-            tasks.remove(state.id);
-            activeTaskId = null;
-            addHistory(state.toView());
-            historyStore.save(history);
+            synchronized (this) {
+                addHistory(state.toView());
+                historyStore.save(history);
+                tasks.remove(state.id);
+                activeTaskId = null;
+            }
             broadcastSnapshot();
         }
     }

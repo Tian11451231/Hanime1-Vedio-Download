@@ -1,0 +1,31 @@
+# Build
+target/
+*.jar
+*.war
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.project
+.classpath
+bin/
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Runtime cache / output
+cache/
+output/
+history-cover-cache/
+*.log
+
+# Maven wrapper (optional, keep if needed)
+# !mvnw
+# !.mvn/wrapper/

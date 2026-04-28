@@ -5,13 +5,13 @@ import com.wangver.hanime.model.DownloadProgress;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -156,8 +156,20 @@ public class HlsDownloader {
             throw new IOException("分片下载失败，状态码: " + response.statusCode());
         }
 
-        try (InputStream inputStream = response.body()) {
-            Files.copy(inputStream, outputFile, StandardCopyOption.REPLACE_EXISTING);
+        try (InputStream inputStream = response.body();
+             OutputStream outputStream = Files.newOutputStream(
+                     outputFile,
+                     StandardOpenOption.CREATE,
+                     StandardOpenOption.TRUNCATE_EXISTING,
+                     StandardOpenOption.WRITE
+             )) {
+            byte[] buffer = new byte[8192];
+            int bytesRead;
+            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                control.awaitIfPaused();
+                control.throwIfCancelled();
+                outputStream.write(buffer, 0, bytesRead);
+            }
         }
 
         long finished = completedSegments.incrementAndGet();

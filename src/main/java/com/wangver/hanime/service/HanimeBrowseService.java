@@ -24,68 +24,29 @@ public class HanimeBrowseService {
     public Map<String, Object> fetchCategory(String category, int pageNum) throws Exception {
         return browserService.runSerialized(() -> {
             String url = buildCategoryUrl(category, pageNum);
-            System.out.println("Persistent Browser Fetch Category: " + category + " Page: " + pageNum + " -> URL: " + url);
+            System.out.println("Browse: " + category + " Page: " + pageNum + " -> URL: " + url);
 
-            boolean newlyVerified = false;
-            Map<String, Object> result = new HashMap<>();
-
+            Page page = browserService.createPage();
             try {
-                for (int attempt = 1; attempt <= 2; attempt++) {
-                    Page page = browserService.createPage();
-                    try {
-                        page.navigate(url, new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED).setTimeout(60000));
+                page.navigate(url, new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED).setTimeout(60000));
+                page.waitForSelector("a[href*='watch?v=']",
+                        new Page.WaitForSelectorOptions().setState(com.microsoft.playwright.options.WaitForSelectorState.ATTACHED).setTimeout(20000));
+                page.waitForLoadState(com.microsoft.playwright.options.LoadState.NETWORKIDLE);
 
-                        boolean verificationRetryNeeded = false;
-                        System.out.println("Waiting for Category Grid elements to appear (bypassing CF if needed)...");
-                        try {
-                            page.waitForSelector("a[href*='watch?v=']",
-                                    new Page.WaitForSelectorOptions().setState(com.microsoft.playwright.options.WaitForSelectorState.ATTACHED).setTimeout(20000));
-                        } catch (Exception e) {
-                            System.out.println("Wait timeout (20s). Checking if we are stuck in background mode...");
-                            if (browserService.hasVerifiedSession()) {
-                                System.out.println("Likely encountered CF in background mode. Triggering headful restart.");
-                                verificationRetryNeeded = true;
-                            } else {
-                                System.out.println("Proceeding with current content (might be blocked by CF)...");
-                            }
-                        }
-
-                        if (verificationRetryNeeded) {
-                            closePageQuietly(page);
-                            page = null;
-                            browserService.forceRestartHeadful();
-                            continue;
-                        }
-
-                        String html = page.content();
-                        List<Map<String, String>> grid = parseVideoGrid(html);
-                        int totalPages = parseTotalPages(html, pageNum);
-
-                        result.put("videos", grid);
-                        result.put("currentPage", pageNum);
-                        result.put("totalPages", totalPages);
-
-                        if (!grid.isEmpty()) {
-                            newlyVerified = browserService.markAsVerified();
-                        }
-
-                        break;
-                    } finally {
-                        closePageQuietly(page);
-                    }
-                }
-            } catch (Exception e) {
-                System.err.println("Browse error: " + e.getMessage());
-                throw e;
+                String html = page.content();
+                return buildCategoryResult(html, pageNum);
+            } finally {
+                closePageQuietly(page);
             }
-
-            browserService.restartIfNewlyVerified(newlyVerified);
-            if (!result.isEmpty()) {
-                return result;
-            }
-
-            throw new IllegalStateException("分类解析失败，浏览器验证后仍无法获取页面");
         });
+    }
+
+    private Map<String, Object> buildCategoryResult(String html, int pageNum) {
+        Map<String, Object> result = new HashMap<>();
+        result.put("videos", parseVideoGrid(html));
+        result.put("currentPage", pageNum);
+        result.put("totalPages", parseTotalPages(html, pageNum));
+        return result;
     }
 
     private String buildCategoryUrl(String category, int pageNum) {
@@ -110,13 +71,10 @@ public class HanimeBrowseService {
     }
 
     private void closePageQuietly(Page page) {
-        if (page == null) {
-            return;
-        }
+        if (page == null) return;
         try {
             page.close();
-        } catch (PlaywrightException ignored) {
-        }
+        } catch (PlaywrightException ignored) {}
     }
 
     private int parseTotalPages(String html, int defaultPage) {
@@ -126,9 +84,7 @@ public class HanimeBrowseService {
         for (Element a : pageLinks) {
             try {
                 int p = Integer.parseInt(a.text().trim());
-                if (p > maxPage) {
-                    maxPage = p;
-                }
+                if (p > maxPage) maxPage = p;
             } catch (NumberFormatException e) {
                 String href = a.attr("href");
                 if (href != null && href.contains("page=")) {
@@ -138,9 +94,7 @@ public class HanimeBrowseService {
                         if (ampIndex > 0) pageStr = pageStr.substring(0, ampIndex);
                         int p = Integer.parseInt(pageStr);
                         if (p > maxPage) maxPage = p;
-                    } catch (Exception ex) {
-                        // ignore
-                    }
+                    } catch (Exception ignored) {}
                 }
             }
         }
@@ -150,20 +104,15 @@ public class HanimeBrowseService {
     private List<Map<String, String>> parseVideoGrid(String html) {
         List<Map<String, String>> videos = new ArrayList<>();
         Document doc = Jsoup.parse(html);
-        
-        // 查找所有包含 watch?v= 的卡片链接
+
         Elements cards = doc.select("a[href*=\"watch?v=\"]");
         Set<String> seen = new HashSet<>();
 
         for (Element a : cards) {
             String link = a.attr("href");
-            
-            // 补全相对路径
             if (link.startsWith("/")) {
                 link = "https://hanime1.me" + link;
             }
-            
-            // 排重
             if (seen.contains(link)) continue;
 
             Element img = a.selectFirst("img");

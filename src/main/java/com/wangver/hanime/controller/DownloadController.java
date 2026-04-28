@@ -4,6 +4,7 @@ import com.wangver.hanime.model.DownloadBatchRequest;
 import com.wangver.hanime.model.DownloadSnapshot;
 import com.wangver.hanime.service.DownloadService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -50,6 +51,16 @@ public class DownloadController {
     @PostMapping("/{taskId}/retry")
     public ResponseEntity<DownloadSnapshot> retry(@PathVariable String taskId) {
         return ResponseEntity.ok(downloadService.retryTask(taskId));
+    }
+
+    @DeleteMapping("/history")
+    public ResponseEntity<DownloadSnapshot> clearHistory() {
+        return ResponseEntity.ok(downloadService.clearHistory());
+    }
+
+    @PostMapping("/history/clear")
+    public ResponseEntity<DownloadSnapshot> clearHistoryWithPost() {
+        return ResponseEntity.ok(downloadService.clearHistory());
     }
 
     @GetMapping("/stream")

@@ -6,8 +6,8 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
-import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
 
 import java.util.*;
 import java.util.regex.Matcher;
@@ -17,232 +17,210 @@ import java.util.regex.Pattern;
 public class HanimeParserService {
 
     @Autowired
+    private HanimeHttpSessionService httpSessionService;
+
+    @Autowired
     private PlaywrightBrowserService browserService;
 
     public Map<String, Object> parse(String url) throws Exception {
+        String videoId = extractVideoId(url);
+
+        if (httpSessionService != null) {
+            try {
+                String html = httpSessionService.fetchHtml(url, "https://hanime1.me/");
+                String downloadHtml = fetchDownloadPageHtml(videoId);
+                return buildParseResult(url, html, downloadHtml);
+            } catch (HttpSessionExpiredException e) {
+                System.out.println("HTTP session rejected for parse, falling back to Playwright: " + e.getMessage());
+            }
+        }
+
+        if (browserService == null) {
+            throw new IllegalStateException("No HTTP session or browser service available");
+        }
+
+        return parseWithPlaywright(url, videoId);
+    }
+
+    public String fetchThumbnail(String url) throws Exception {
+        String html = fetchVideoPageHtml(url);
+        return extractThumbnail(html);
+    }
+
+    private String fetchVideoPageHtml(String url) throws Exception {
+        if (httpSessionService != null) {
+            try {
+                return httpSessionService.fetchHtml(url, "https://hanime1.me/");
+            } catch (HttpSessionExpiredException e) {
+                System.out.println("HTTP session rejected for thumbnail, falling back to Playwright: " + e.getMessage());
+            }
+        }
+
+        if (browserService == null) {
+            throw new IllegalStateException("No HTTP session or browser service available");
+        }
+
         return browserService.runSerialized(() -> {
-            String videoId = extractVideoId(url);
-
-            System.out.println("Starting Parse URL: " + url + " (Persistent Mode)");
-
-            Map<String, Object> result = new HashMap<>();
-            boolean newlyVerified = false;
-            for (int attempt = 1; attempt <= 2; attempt++) {
-                Page page = browserService.createPage();
-                try {
-
-                    page.navigate(url, new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED).setTimeout(60000));
-
-                    boolean verificationRetryNeeded = false;
-                    try {
-                        page.waitForSelector(".video-details-wrapper, #player, .title, h1.title, h3.title", new Page.WaitForSelectorOptions().setTimeout(20000));
-                    } catch (Exception e) {
-                        System.out.println("Wait timeout (20s). checking if stuck in background mode...");
-                        if (browserService.hasVerifiedSession()) {
-                            verificationRetryNeeded = true;
-                        } else {
-                            System.out.println("Proceeding with current content (might be blocked by CF)...");
-                        }
-                    }
-
-                    if (verificationRetryNeeded) {
-                        System.out.println("Likely encountered CF in background mode. Restarting headful and retrying parse...");
-                        closePageQuietly(page);
-                        page = null;
-                        browserService.forceRestartHeadful();
-                        continue;
-                    }
-
-                    String html = page.content();
-
-                    String downloadHtml = fetchDownloadPageHtml(page, videoId);
-
-                    String bestStream = selectBestDownloadSource(html, downloadHtml);
-
-                    result.put("videoUrl", bestStream != null ? bestStream.replace("&amp;", "&") : "");
-
-                    Document doc = Jsoup.parse(html);
-                    Element titleEl = doc.selectFirst("h3.title, h1.title, .title, .video-title");
-                    if (titleEl != null) {
-                        result.put("title", TitleTextNormalizer.normalize(titleEl.text()));
-                    } else {
-                        Element ogTitle = doc.selectFirst("meta[property=og:title], meta[name=title]");
-                        String fallbackTitle = ogTitle != null ? ogTitle.attr("content") : doc.title();
-                        result.put("title", TitleTextNormalizer.normalize(fallbackTitle));
-                    }
-
-                    Element thumbMeta = doc.selectFirst("meta[itemprop=thumbnailUrl]");
-                    if (thumbMeta != null) {
-                        result.put("thumbnail", thumbMeta.attr("content"));
-                    } else {
-                        Element ogImg = doc.selectFirst("meta[property=og:image]");
-                        if (ogImg != null) {
-                            result.put("thumbnail", ogImg.attr("content"));
-                        } else {
-                            Element videoEl = doc.selectFirst("video#player");
-                            if (videoEl != null && videoEl.hasAttr("poster")) {
-                                result.put("thumbnail", videoEl.attr("poster"));
-                            } else {
-                                result.put("thumbnail", "https://via.placeholder.com/1280x720.png?text=No+Cover");
-                            }
-                        }
-                    }
-
-                    result.put("playlist", extractPlaylist(html, url));
-                    result.put("relatedVideos", extractRelatedVideos(html, url));
-
-                    if (bestStream != null && !bestStream.trim().isEmpty()) {
-                        newlyVerified = browserService.markAsVerified();
-                    }
-                    break;
-                } finally {
-                    closePageQuietly(page);
-                }
+            Page page = browserService.createPage();
+            try {
+                page.navigate(url, new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED).setTimeout(60000));
+                page.waitForSelector("meta[itemprop=thumbnailUrl], meta[property=og:image], video#player",
+                        new Page.WaitForSelectorOptions().setTimeout(20000));
+                return page.content();
+            } finally {
+                closePageQuietly(page);
             }
-
-            browserService.restartIfNewlyVerified(newlyVerified);
-            if (!result.isEmpty()) {
-                return result;
-            }
-
-            throw new IllegalStateException("解析失败，浏览器验证后仍无法获取页面");
         });
     }
 
-    private String extractHighestQualityStream(String html) {
+    private Map<String, Object> parseWithPlaywright(String url, String videoId) throws Exception {
+        return browserService.runSerialized(() -> {
+            Page page = browserService.createPage();
+            try {
+                page.navigate(url, new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED).setTimeout(60000));
+                page.waitForSelector(".video-details-wrapper, #player, .title, h1.title, h3.title",
+                        new Page.WaitForSelectorOptions().setTimeout(20000));
+
+                String html = page.content();
+                String downloadHtml = null;
+
+                if (videoId != null && !videoId.isBlank()) {
+                    try {
+                        page.navigate("https://hanime1.me/download?v=" + videoId);
+                        page.waitForSelector("table.download-table a[data-url], a[data-url]",
+                                new Page.WaitForSelectorOptions().setTimeout(10000));
+                        downloadHtml = page.content();
+                    } catch (Exception e) {
+                        System.out.println("下载页获取失败: " + e.getMessage());
+                    }
+                }
+
+                return buildParseResult(url, html, downloadHtml);
+            } finally {
+                closePageQuietly(page);
+            }
+        });
+    }
+
+    private void closePageQuietly(Page page) {
+        if (page == null) return;
+        try {
+            page.close();
+        } catch (PlaywrightException ignored) {}
+    }
+
+    private Map<String, Object> buildParseResult(String url, String html, String downloadHtml) {
+        Map<String, Object> result = new HashMap<>();
+        String videoUrl = null;
+        if (downloadHtml != null && !downloadHtml.isBlank()) {
+            videoUrl = extractFirstStream(downloadHtml);
+        }
+        if (videoUrl == null || videoUrl.isBlank()) {
+            videoUrl = extractFirstStream(html);
+        }
+
+        result.put("videoUrl", videoUrl != null ? videoUrl.replace("&amp;", "&") : "");
+
+        Document doc = Jsoup.parse(html);
+        Element titleEl = doc.selectFirst("h3.title, h1.title, .title, .video-title");
+        if (titleEl != null) {
+            result.put("title", TitleTextNormalizer.normalize(titleEl.text()));
+        } else {
+            Element ogTitle = doc.selectFirst("meta[property=og:title], meta[name=title]");
+            String fallbackTitle = ogTitle != null ? ogTitle.attr("content") : doc.title();
+            result.put("title", TitleTextNormalizer.normalize(fallbackTitle));
+        }
+
+        result.put("thumbnail", extractThumbnail(html));
+
+        result.put("playlist", extractPlaylist(html, url));
+        result.put("relatedVideos", extractRelatedVideos(html, url));
+        return result;
+    }
+
+    private String extractThumbnail(String html) {
+        Document doc = Jsoup.parse(html);
+        Element thumbMeta = doc.selectFirst("meta[itemprop=thumbnailUrl]");
+        if (thumbMeta != null) {
+            return thumbMeta.attr("content");
+        }
+
+        Element ogImg = doc.selectFirst("meta[property=og:image]");
+        if (ogImg != null) {
+            return ogImg.attr("content");
+        }
+
+        Element videoEl = doc.selectFirst("video#player");
+        if (videoEl != null && videoEl.hasAttr("poster")) {
+            return videoEl.attr("poster");
+        }
+
+        return "";
+    }
+
+    private String extractFirstStream(String html) {
         Document doc = Jsoup.parse(html);
 
-        String downloadTableUrl = extractHighestQualityDownloadUrl(doc);
-        if (downloadTableUrl != null) {
-            return downloadTableUrl;
-        }
-        
-        List<String> mp4Links = extractLinksByRegex(html, "(https?://[^\\s'\"]+\\.mp4[^\\s'\"]*)");
-        String preferredMp4 = selectHighestQualityLink(mp4Links);
-        if (preferredMp4 != null) {
-            return preferredMp4;
+        String downloadUrl = extractFirstDownloadUrl(doc);
+        if (downloadUrl != null) {
+            return downloadUrl;
         }
 
-        // 尝试从 <source> 标签找
         Elements sources = doc.select("source[src]");
         for (Element s : sources) {
             String src = s.attr("src");
             if (src.contains(".m3u8") || src.contains(".mp4")) return src;
         }
 
-        // 回退正则匹配
-        List<String> m3u8Links = extractLinksByRegex(html, "(https?://[^\\s'\"]+\\.m3u8[^\\s'\"]*)");
+        List<String> mp4Links = extractLinksByRegex(html, "(https?://[^\\s'\"]+\\.mp4[^\\s'\"]*)");
+        if (!mp4Links.isEmpty()) {
+            return mp4Links.get(0);
+        }
 
+        List<String> m3u8Links = extractLinksByRegex(html, "(https?://[^\\s'\"]+\\.m3u8[^\\s'\"]*)");
         if (!m3u8Links.isEmpty()) {
             return m3u8Links.get(0);
-        }
-        
-        return null; // 未找到
-    }
-
-    private String selectBestDownloadSource(String pageHtml, String downloadHtml) {
-        String bestDownloadUrl = null;
-        if (downloadHtml != null && !downloadHtml.isBlank()) {
-            bestDownloadUrl = extractHighestQualityStream(downloadHtml);
-        }
-        if (bestDownloadUrl != null && !bestDownloadUrl.isBlank()) {
-            return bestDownloadUrl;
-        }
-        return extractHighestQualityStream(pageHtml);
-    }
-
-    private String fetchDownloadPageHtml(Page page, String videoId) {
-        if (videoId == null || videoId.isBlank()) {
-            return null;
-        }
-
-        System.out.println("优先尝试进入下载源池页面抓取最高画质直链...");
-        List<String> candidates = List.of(
-                "https://hanime1.me/download?v=" + videoId,
-                "https://javchu.com/download?v=" + videoId
-        );
-
-        for (String candidate : candidates) {
-            try {
-                page.navigate(candidate);
-                page.waitForSelector("table.download-table a[data-url], a[data-url]", new Page.WaitForSelectorOptions().setTimeout(10000));
-                return page.content();
-            } catch (Exception ex) {
-                System.out.println("下载页没有找到可用直链: " + candidate + " -> " + ex.getMessage());
-            }
         }
 
         return null;
     }
 
-    private String extractHighestQualityDownloadUrl(Document doc) {
+    private String extractFirstDownloadUrl(Document doc) {
         Elements rows = doc.select("table.download-table tr");
-        String bestUrl = null;
-        int bestScore = -1;
-
         for (Element row : rows) {
-            Element qualityCell = row.selectFirst("td:nth-of-type(2)");
             Element downloadButton = row.selectFirst("a[data-url]");
-            if (qualityCell == null || downloadButton == null) {
-                continue;
-            }
+            if (downloadButton == null) continue;
 
-            String candidateUrl = downloadButton.attr("data-url").replace("&amp;", "&");
-            if (candidateUrl.isBlank() || candidateUrl.toLowerCase().contains("juicyads")) {
-                continue;
-            }
+            String url = downloadButton.attr("data-url").replace("&amp;", "&");
+            if (url.isBlank() || url.toLowerCase(Locale.ROOT).contains("juicyads")) continue;
 
-            int score = qualityScore(qualityCell.text());
-            if (score > bestScore) {
-                bestScore = score;
-                bestUrl = candidateUrl;
-            }
+            return url;
         }
-
-        return bestUrl;
+        return null;
     }
 
-    private int qualityScore(String text) {
-        String normalized = text == null ? "" : text.toLowerCase(Locale.ROOT);
-        if (normalized.contains("2160") || normalized.contains("4k")) {
-            return 2160;
+    private String fetchDownloadPageHtml(String videoId) {
+        if (videoId == null || videoId.isBlank()) return null;
+
+        String url = "https://hanime1.me/download?v=" + videoId;
+        try {
+            String html = httpSessionService.fetchHtml(url, "https://hanime1.me/watch?v=" + videoId);
+            if (extractFirstDownloadUrl(Jsoup.parse(html)) != null) {
+                return html;
+            }
+        } catch (Exception e) {
+            System.out.println("下载页获取失败: " + url + " -> " + e.getMessage());
         }
-        if (normalized.contains("1440")) {
-            return 1440;
-        }
-        if (normalized.contains("1080")) {
-            return 1080;
-        }
-        if (normalized.contains("720")) {
-            return 720;
-        }
-        if (normalized.contains("480")) {
-            return 480;
-        }
-        return 0;
+        return null;
     }
 
-    private String selectHighestQualityLink(List<String> links) {
-        String bestLink = null;
-        int bestScore = -1;
-        for (String link : links) {
-            int score = qualityScore(link);
-            if (score > bestScore) {
-                bestScore = score;
-                bestLink = link;
-            }
-        }
-        return bestLink;
-    }
-    
     private List<String> extractLinksByRegex(String html, String regexStr) {
         List<String> links = new ArrayList<>();
         Pattern pattern = Pattern.compile(regexStr, Pattern.CASE_INSENSITIVE);
         Matcher matcher = pattern.matcher(html);
         while (matcher.find()) {
             String link = matcher.group(1);
-            // 过滤广告
-            if (!link.toLowerCase().contains("juicyads")) {
+            if (!link.toLowerCase(Locale.ROOT).contains("juicyads")) {
                 links.add(link);
             }
         }
@@ -424,16 +402,6 @@ public class HanimeParserService {
                 return "https://hanime1.me" + href;
             }
             return null;
-        }
-    }
-
-    private void closePageQuietly(Page page) {
-        if (page == null) {
-            return;
-        }
-        try {
-            page.close();
-        } catch (PlaywrightException ignored) {
         }
     }
 }

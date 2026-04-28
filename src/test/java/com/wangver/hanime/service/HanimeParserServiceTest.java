@@ -1,26 +1,15 @@
 package com.wangver.hanime.service;
 
-import com.microsoft.playwright.Page;
 import org.junit.jupiter.api.Test;
-import org.mockito.InOrder;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 class HanimeParserServiceTest {
 
@@ -54,14 +43,14 @@ class HanimeParserServiceTest {
                 + "  <h3>新番资讯</h3>"
                 + "  <a href='/watch?v=9001'>"
                 + "    <img src='https://cdn.example.com/news-thumb.jpg'>"
-                + "    <div class='home-rows-videos-title'>不该展示的新番资讯</div>"
+                + "    <div class='home-rows-videos-title'>不該展示的新番资讯</div>"
                 + "  </a>"
                 + "</section>"
                 + "<section class='home-rows-videos-wrapper'>"
                 + "  <h3>评论</h3>"
                 + "  <a href='/watch?v=9002'>"
                 + "    <img src='https://cdn.example.com/comment-thumb.jpg'>"
-                + "    <div class='home-rows-videos-title'>不该展示的评论卡片</div>"
+                + "    <div class='home-rows-videos-title'>不該展示的评论卡片</div>"
                 + "  </a>"
                 + "</section>"
                 + "<section class='home-rows-videos-wrapper'>"
@@ -98,98 +87,72 @@ class HanimeParserServiceTest {
                 + "</body></html>";
     }
 
-    private static void injectBrowserService(HanimeParserService service, PlaywrightBrowserService browserService) throws Exception {
-        Field field = HanimeParserService.class.getDeclaredField("browserService");
+    private static void injectHttpSessionService(HanimeParserService service, HanimeHttpSessionService httpSessionService) throws Exception {
+        Field field = HanimeParserService.class.getDeclaredField("httpSessionService");
         field.setAccessible(true);
-        field.set(service, browserService);
-    }
-
-    private static void stubSerializedExecution(PlaywrightBrowserService browserService) throws Exception {
-        when(browserService.runSerialized(any())).thenAnswer(invocation -> {
-            PlaywrightBrowserService.CheckedSupplier<?> supplier = invocation.getArgument(0);
-            return supplier.get();
-        });
+        field.set(service, httpSessionService);
     }
 
     @Test
-    void prefersHighestQualityMp4FromDownloadTable() throws Exception {
+    void extractsFirstDownloadUrlFromDownloadTable() throws Exception {
         HanimeParserService service = new HanimeParserService();
-        String html = sampleDownloadPageHtml();
-
-        Method method = HanimeParserService.class.getDeclaredMethod("extractHighestQualityStream", String.class);
+        Method method = HanimeParserService.class.getDeclaredMethod("extractFirstDownloadUrl", org.jsoup.nodes.Document.class);
         method.setAccessible(true);
 
-        String stream = (String) method.invoke(service, html);
+        org.jsoup.nodes.Document doc = org.jsoup.Jsoup.parse(sampleDownloadPageHtml());
+        String url = (String) method.invoke(service, doc);
 
-        assertEquals("https://rapidgator.net/file/79865d10b7482c731a481421e4d2a35d", stream);
+        assertEquals("https://rapidgator.net/file/lower-quality", url);
     }
 
     @Test
     void prefersDownloadPageSourceOverHomepageStreamWhenBothExist() throws Exception {
         HanimeParserService service = new HanimeParserService();
         String pageHtml = "<html><body><source src='https://cdn.example.com/video.m3u8'></body></html>";
-        String downloadHtml = sampleDownloadPageHtml();
 
-        Method method = HanimeParserService.class.getDeclaredMethod("selectBestDownloadSource", String.class, String.class);
+        Method method = HanimeParserService.class.getDeclaredMethod("buildParseResult", String.class, String.class, String.class);
         method.setAccessible(true);
 
-        String stream = (String) method.invoke(service, pageHtml, downloadHtml);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> result = (Map<String, Object>) method.invoke(service, "https://hanime1.me/watch?v=test", pageHtml, sampleDownloadPageHtml());
 
-        assertEquals("https://rapidgator.net/file/79865d10b7482c731a481421e4d2a35d", stream);
+        assertEquals("https://rapidgator.net/file/lower-quality", result.get("videoUrl"));
     }
 
     @Test
-    void prefers1080DirectMp4FromWatchPageOverLowerQualitySourceTag() throws Exception {
+    void takesFirstStreamFromSourceTagWhenNoDownloadTable() throws Exception {
         HanimeParserService service = new HanimeParserService();
-        String html = "<html><body>"
-                + "<video><source src='https://cdn.example.com/video-720p.mp4'></video>"
-                + "<a href='https://cdn.example.com/video-1080p.mp4'>download</a>"
-                + "</body></html>";
+        String html = "<html><body><video><source src='https://cdn.example.com/video-720p.mp4'></video></body></html>";
 
-        Method method = HanimeParserService.class.getDeclaredMethod("extractHighestQualityStream", String.class);
+        Method method = HanimeParserService.class.getDeclaredMethod("extractFirstStream", String.class);
         method.setAccessible(true);
 
         String stream = (String) method.invoke(service, html);
+        assertEquals("https://cdn.example.com/video-720p.mp4", stream);
+    }
 
+    @Test
+    void takesFirstStreamFromMp4RegexWhenNoSourceTag() throws Exception {
+        HanimeParserService service = new HanimeParserService();
+        String html = "<html><body><a href='https://cdn.example.com/video-1080p.mp4'>download</a></body></html>";
+
+        Method method = HanimeParserService.class.getDeclaredMethod("extractFirstStream", String.class);
+        method.setAccessible(true);
+
+        String stream = (String) method.invoke(service, html);
         assertEquals("https://cdn.example.com/video-1080p.mp4", stream);
     }
 
     @Test
-    void prefers2160pDirectMp4Over1080pWhenBothExist() throws Exception {
+    void takesFirstM3u8StreamWhenNoMp4Found() throws Exception {
         HanimeParserService service = new HanimeParserService();
-        String html = "<html><body>"
-                + "<a href='https://cdn.example.com/video-1080p.mp4'>1080p</a>"
-                + "<a href='https://cdn.example.com/video-2160p.mp4'>2160p</a>"
-                + "</body></html>";
+        String html = "<html><body><a href='https://cdn.example.com/video.m3u8'>hls</a></body></html>";
 
-        Method method = HanimeParserService.class.getDeclaredMethod("extractHighestQualityStream", String.class);
+        Method method = HanimeParserService.class.getDeclaredMethod("extractFirstStream", String.class);
         method.setAccessible(true);
 
         String stream = (String) method.invoke(service, html);
-
-        assertEquals("https://cdn.example.com/video-2160p.mp4", stream);
-    }
-
-    @Test
-    void usesLegalDownloadPageSelectorWhenFetchingDirectLinks() throws Exception {
-        HanimeParserService service = new HanimeParserService();
-        Page page = mock(Page.class);
-
-        when(page.content()).thenReturn("<html><body><table class='download-table'><tr><td></td><td>1080p</td><td><a data-url='https://cdn.example.com/video-1080p.mp4'></a></td></tr></table></body></html>");
-
-        Method method = HanimeParserService.class.getDeclaredMethod("fetchDownloadPageHtml", Page.class, String.class);
-        method.setAccessible(true);
-
-        String html = (String) method.invoke(service, page, "166763");
-
-        verify(page).waitForSelector(anyString(), any(Page.WaitForSelectorOptions.class));
-        org.mockito.ArgumentCaptor<String> selectorCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
-        verify(page).waitForSelector(selectorCaptor.capture(), any(Page.WaitForSelectorOptions.class));
-        String selector = selectorCaptor.getValue();
-
-        assertNotNull(html);
-        assertFalse(selector.contains("text:1080p"));
-        assertEquals("table.download-table a[data-url], a[data-url]", selector);
+        assertEquals("https://cdn.example.com/video.m3u8", stream);
     }
 
     @SuppressWarnings("unchecked")
@@ -253,7 +216,7 @@ class HanimeParserServiceTest {
                 + "    <div class='card-mobile-panel inner'>"
                 + "      <img src='https://vdownload.hembed.com/image/icon/card_doujin_background.jpg?secure=abc'>"
                 + "      <img src='https://vdownload.hembed.com/image/thumbnail/3001l.jpg?secure=thumb'>"
-                + "      <div class='card-mobile-title'>真实封面项</div>"
+                + "      <div class='card-mobile-title'>真實封面項</div>"
                 + "    </div>"
                 + "  </div>"
                 + "</div>"
@@ -325,51 +288,75 @@ class HanimeParserServiceTest {
     }
 
     @Test
-    void closesPageBeforeRestartingAfterVerification() throws Exception {
+    void usesHttpForParseAndReturnsFirstDownloadLink() throws Exception {
         HanimeParserService service = new HanimeParserService();
-        PlaywrightBrowserService browserService = mock(PlaywrightBrowserService.class);
-        Page page = mock(Page.class);
+        HanimeHttpSessionService httpSessionService = mock(HanimeHttpSessionService.class);
+        injectHttpSessionService(service, httpSessionService);
 
-        injectBrowserService(service, browserService);
-        stubSerializedExecution(browserService);
+        when(httpSessionService.fetchHtml("https://hanime1.me/watch?v=166763", "https://hanime1.me/"))
+                .thenReturn("<html><head><title>Test</title></head><body><h1 class='title'>Test Video</h1><source src='https://cdn.example.com/video-720p.mp4'></body></html>");
+        when(httpSessionService.fetchHtml("https://hanime1.me/download?v=166763", "https://hanime1.me/watch?v=166763"))
+                .thenReturn(sampleDownloadPageHtml());
 
-        when(browserService.createPage()).thenReturn(page);
-        when(browserService.markAsVerified()).thenReturn(true);
-        when(page.content()).thenReturn("<html><head><title>Example</title></head><body><h1 class='title'>Example</h1><video><source src='https://cdn.example.com/video-1080p.mp4'></video></body></html>");
-        doThrow(new RuntimeException("download page unavailable")).when(page).waitForSelector(any(String.class), any(Page.WaitForSelectorOptions.class));
+        Map<String, Object> result = service.parse("https://hanime1.me/watch?v=166763");
 
-        service.parse("https://hanime1.me/watch?v=166763");
-
-        InOrder inOrder = inOrder(browserService, page);
-        inOrder.verify(browserService).markAsVerified();
-        inOrder.verify(page).close();
-        inOrder.verify(browserService).restartIfNewlyVerified(true);
+        assertEquals("https://rapidgator.net/file/lower-quality", result.get("videoUrl"));
+        assertEquals("Test Video", result.get("title"));
+        verify(httpSessionService).fetchHtml("https://hanime1.me/watch?v=166763", "https://hanime1.me/");
+        verify(httpSessionService).fetchHtml("https://hanime1.me/download?v=166763", "https://hanime1.me/watch?v=166763");
     }
 
     @Test
-    void retriesAfterHeadlessTimeoutEvenIfRestartClosedOriginalPageConnection() throws Exception {
+    void returnsEmptyVideoUrlWhenNoDownloadLinkFound() throws Exception {
         HanimeParserService service = new HanimeParserService();
+        HanimeHttpSessionService httpSessionService = mock(HanimeHttpSessionService.class);
+        injectHttpSessionService(service, httpSessionService);
+
+        when(httpSessionService.fetchHtml("https://hanime1.me/watch?v=166763", "https://hanime1.me/"))
+                .thenReturn("<html><head><title>Test</title></head><body><h1 class='title'>Test</h1></body></html>");
+        when(httpSessionService.fetchHtml("https://hanime1.me/download?v=166763", "https://hanime1.me/watch?v=166763"))
+                .thenReturn("<html><body>no links</body></html>");
+
+        Map<String, Object> result = service.parse("https://hanime1.me/watch?v=166763");
+
+        assertEquals("", result.get("videoUrl"));
+    }
+
+    @Test
+    void rethrowsWhenNoBrowserFallbackAvailable() throws Exception {
+        HanimeParserService service = new HanimeParserService();
+        HanimeHttpSessionService httpSessionService = mock(HanimeHttpSessionService.class);
+        injectHttpSessionService(service, httpSessionService);
+
+        when(httpSessionService.fetchHtml(anyString(), anyString())).thenThrow(new HttpSessionExpiredException("session expired"));
+
+        assertThrows(IllegalStateException.class, () ->
+                service.parse("https://hanime1.me/watch?v=166763"));
+    }
+
+    @Test
+    void fallsBackToPlaywrightWhenHttpFails() throws Exception {
+        HanimeParserService service = new HanimeParserService();
+        HanimeHttpSessionService httpSessionService = mock(HanimeHttpSessionService.class);
         PlaywrightBrowserService browserService = mock(PlaywrightBrowserService.class);
-        Page firstPage = mock(Page.class);
-        Page secondPage = mock(Page.class);
+        com.microsoft.playwright.Page page = mock(com.microsoft.playwright.Page.class);
+        injectHttpSessionService(service, httpSessionService);
 
-        injectBrowserService(service, browserService);
-        stubSerializedExecution(browserService);
+        java.lang.reflect.Field bf = HanimeParserService.class.getDeclaredField("browserService");
+        bf.setAccessible(true);
+        bf.set(service, browserService);
 
-        when(browserService.createPage()).thenReturn(firstPage, secondPage);
-        when(browserService.hasVerifiedSession()).thenReturn(true, false);
-        doThrow(new RuntimeException("timeout")).when(firstPage).waitForSelector(any(String.class), any(Page.WaitForSelectorOptions.class));
-        doThrow(new com.microsoft.playwright.PlaywrightException("Playwright connection closed")).when(firstPage).close();
-        when(secondPage.content()).thenReturn("<html><head><title>Example</title></head><body><h1 class='title'>Example</h1><video><source src='https://cdn.example.com/video-1080p.mp4'></video></body></html>");
-        when(secondPage.waitForSelector(any(String.class), any(Page.WaitForSelectorOptions.class))).thenAnswer(invocation -> {
-            String selector = invocation.getArgument(0);
-            if (selector.contains("table.download-table") || selector.contains("a[data-url]")) {
-                throw new RuntimeException("download page unavailable");
-            }
-            return null;
+        when(httpSessionService.fetchHtml(anyString(), anyString())).thenThrow(new HttpSessionExpiredException("session expired"));
+        when(browserService.runSerialized(any())).thenAnswer(inv -> {
+            PlaywrightBrowserService.CheckedSupplier<?> supplier = inv.getArgument(0);
+            return supplier.get();
         });
+        when(browserService.createPage()).thenReturn(page);
+        when(page.content()).thenReturn("<html><head><title>Test</title></head><body><h1 class='title'>Fallback</h1><source src='https://cdn.example.com/video.m3u8'></body></html>");
 
-        assertDoesNotThrow(() -> service.parse("https://hanime1.me/watch?v=166763"));
-        verify(browserService).forceRestartHeadful();
+        Map<String, Object> result = service.parse("https://hanime1.me/watch?v=166763");
+
+        assertEquals("Fallback", result.get("title"));
+        assertEquals("https://cdn.example.com/video.m3u8", result.get("videoUrl"));
     }
 }

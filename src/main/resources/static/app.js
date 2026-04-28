@@ -15,6 +15,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const downloadHistoryCount = document.getElementById("downloadHistoryCount");
     const downloadQueueList = document.getElementById("downloadQueueList");
     const downloadHistoryList = document.getElementById("downloadHistoryList");
+    const clearDownloadHistoryBtn = document.getElementById("clearDownloadHistoryBtn");
 
     const viewLanding = document.getElementById("viewLanding");
     const viewBrowse = document.getElementById("viewBrowse");
@@ -116,19 +117,32 @@ document.addEventListener("DOMContentLoaded", () => {
     function taskActionButtons(task) {
         const actions = [];
         if (task.status === "DOWNLOADING" || task.status === "PREPARING") {
-            actions.push(`<button class="download-action-btn" data-action="pause" data-task-id="${escapeHtml(task.id)}">暂停</button>`);
-            actions.push(`<button class="download-action-btn danger" data-action="cancel" data-task-id="${escapeHtml(task.id)}">取消</button>`);
+            actions.push(`<button class="download-action-btn" type="button" data-action="pause" data-task-id="${escapeHtml(task.id)}">暂停</button>`);
+            actions.push(`<button class="download-action-btn danger" type="button" data-action="cancel" data-task-id="${escapeHtml(task.id)}">取消</button>`);
         } else if (task.status === "PAUSED") {
-            actions.push(`<button class="download-action-btn" data-action="resume" data-task-id="${escapeHtml(task.id)}">继续</button>`);
-            actions.push(`<button class="download-action-btn danger" data-action="cancel" data-task-id="${escapeHtml(task.id)}">取消</button>`);
+            actions.push(`<button class="download-action-btn" type="button" data-action="resume" data-task-id="${escapeHtml(task.id)}">继续</button>`);
+            actions.push(`<button class="download-action-btn danger" type="button" data-action="cancel" data-task-id="${escapeHtml(task.id)}">取消</button>`);
         } else if (task.status === "QUEUED") {
-            actions.push(`<button class="download-action-btn danger" data-action="cancel" data-task-id="${escapeHtml(task.id)}">取消</button>`);
+            actions.push(`<button class="download-action-btn danger" type="button" data-action="cancel" data-task-id="${escapeHtml(task.id)}">取消</button>`);
         }
 
         if (task.status === "FAILED" || task.status === "CANCELLED") {
-            actions.push(`<button class="download-action-btn" data-action="retry" data-task-id="${escapeHtml(task.id)}">重试</button>`);
+            actions.push(`<button class="download-action-btn" type="button" data-action="retry" data-task-id="${escapeHtml(task.id)}">重试</button>`);
         }
         return actions.join("");
+    }
+
+    function proxiedImageUrl(url) {
+        return url ? `/api/proxy/image?url=${encodeURIComponent(url)}` : "";
+    }
+
+    function historyCoverUrl(task) {
+        if (!task || !task.id) return "";
+        return `/api/local-cover/${encodeURIComponent(task.id)}`;
+    }
+
+    function renderHistoryPlaceholder() {
+        return `<div class="download-history-thumb placeholder">No Cover</div>`;
     }
 
     function updateBrowseSelectionSummary() {
@@ -141,6 +155,9 @@ document.addEventListener("DOMContentLoaded", () => {
         downloadBadge.textContent = liveTasks.length;
         downloadLiveCount.textContent = liveTasks.length;
         downloadHistoryCount.textContent = snapshot.historyTasks.length;
+        if (clearDownloadHistoryBtn) {
+            clearDownloadHistoryBtn.disabled = snapshot.historyTasks.length === 0;
+        }
         downloadCenterSummary.textContent = liveTasks.length > 0
             ? `当前有 ${liveTasks.length} 个任务正在执行或排队`
             : "实时查看任务队列、进度和历史记录";
@@ -174,21 +191,96 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
-        downloadHistoryList.innerHTML = snapshot.historyTasks.map((task) => `
-            <article class="download-card history ${String(task.status || "").toLowerCase()}">
-                <div class="download-card-head">
-                    <h4>${escapeHtml(task.title || task.fileName || "未命名任务")}</h4>
-                    <span class="download-status-badge">${formatStatus(task.status)}</span>
+        downloadHistoryList.innerHTML = snapshot.historyTasks.map((task) => {
+            const title = escapeHtml(task.title || task.fileName || "未命名任务");
+            const meta = escapeHtml(task.filePath || task.finishedAt || "等待执行");
+            const pageUrl = escapeHtml(task.pageUrl || "");
+            const clickableClass = task.pageUrl ? "is-clickable" : "";
+            const coverUrl = historyCoverUrl(task);
+            const fallbackCoverUrl = proxiedImageUrl(task.thumbnail);
+            const cover = coverUrl
+                ? `<img src="${coverUrl}" class="download-history-thumb" alt="cover" loading="lazy" data-fallback-src="${escapeHtml(fallbackCoverUrl)}">`
+                : (fallbackCoverUrl
+                    ? `<img src="${fallbackCoverUrl}" class="download-history-thumb" alt="cover" loading="lazy">`
+                    : renderHistoryPlaceholder());
+            return `
+            <article class="download-card history ${clickableClass} ${String(task.status || "").toLowerCase()}" data-page-url="${pageUrl}" tabindex="${task.pageUrl ? '0' : '-1'}">
+                <div class="download-history-cover">
+                    ${cover}
                 </div>
-                <div class="download-meta">${escapeHtml(task.filePath || task.finishedAt || "等待执行")}</div>
-                <div class="download-actions">${taskActionButtons(task)}</div>
+                <div class="download-history-content">
+                    <div class="download-card-head">
+                        <h4 title="${title}">${title}</h4>
+                        <span class="download-status-badge">${formatStatus(task.status)}</span>
+                    </div>
+                    <div class="download-meta" title="${meta}">${meta}</div>
+                    <div class="download-actions">${taskActionButtons(task)}</div>
+                </div>
             </article>
-        `).join("");
+        `;
+        }).join("");
+        bindHistoryCardInteractions();
+        bindHistoryCoverFallbacks();
     }
 
+    function openHistoryTask(pageUrl) {
+        if (!pageUrl) {
+            return;
+        }
+        downloadCenterModal.classList.add("hidden");
+        urlInput.value = pageUrl;
+        switchView("viewParser", true);
+        parseBtn.click();
+    }
+
+    function bindHistoryCardInteractions() {
+        downloadHistoryList.querySelectorAll(".download-card.history.is-clickable").forEach((card) => {
+            card.addEventListener("click", (event) => {
+                if (event.target.closest("[data-action][data-task-id]")) {
+                    return;
+                }
+                openHistoryTask(card.dataset.pageUrl);
+            });
+            card.addEventListener("keydown", (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    openHistoryTask(card.dataset.pageUrl);
+                }
+            });
+        });
+    }
+
+    function bindHistoryCoverFallbacks() {
+        downloadHistoryList.querySelectorAll(".download-history-thumb[data-fallback-src]").forEach((image) => {
+            image.addEventListener("error", () => {
+                const fallbackSrc = image.dataset.fallbackSrc;
+                if (fallbackSrc && image.dataset.fallbackTried !== "true") {
+                    image.dataset.fallbackTried = "true";
+                    image.src = fallbackSrc;
+                    return;
+                }
+                image.replaceWith(createHistoryPlaceholderElement());
+            });
+        });
+    }
+
+    function createHistoryPlaceholderElement() {
+        const placeholder = document.createElement("div");
+        placeholder.className = "download-history-thumb placeholder";
+        placeholder.textContent = "No Cover";
+        return placeholder;
+    }
+
+    let snapshotFrameId = null;
     function applyDownloadSnapshot(snapshot) {
         downloadSnapshot = normalizeSnapshot(snapshot);
-        renderDownloadCenter();
+        if (snapshotFrameId) return;
+        snapshotFrameId = requestAnimationFrame(() => {
+            snapshotFrameId = null;
+            if (!downloadCenterModal.classList.contains("hidden")) {
+                renderDownloadCenter();
+            }
+        });
     }
 
     async function fetchDownloadSnapshot() {
@@ -252,7 +344,6 @@ document.addEventListener("DOMContentLoaded", () => {
             throw new Error(errorText || "加入下载队列失败");
         }
 
-        applyDownloadSnapshot(await response.json());
         downloadCenterModal.classList.remove("hidden");
         if (successMessage) {
             log(successMessage, "info");
@@ -267,7 +358,16 @@ document.addEventListener("DOMContentLoaded", () => {
             const errorText = await response.text();
             throw new Error(errorText || `任务${action}失败`);
         }
-        applyDownloadSnapshot(await response.json());
+    }
+
+    async function clearDownloadHistory() {
+        const response = await fetch("/api/downloads/history/clear", {
+            method: "POST"
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || "清空下载历史失败");
+        }
     }
 
     function buildCurrentDownloadItem() {
@@ -435,12 +535,52 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!actionButton) {
             return;
         }
+        event.preventDefault();
+        event.stopPropagation();
 
         try {
+            actionButton.disabled = true;
             await performTaskAction(actionButton.dataset.taskId, actionButton.dataset.action);
         } catch (error) {
             alert(`任务操作失败: ${error.message}`);
+        } finally {
+            actionButton.disabled = false;
         }
+    });
+    if (clearDownloadHistoryBtn) {
+        clearDownloadHistoryBtn.addEventListener("click", async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (downloadSnapshot.historyTasks.length === 0) {
+                return;
+            }
+            if (!confirm("确定要清空下载历史吗？正在进行或排队的任务不会受影响。")) {
+                return;
+            }
+
+            try {
+                clearDownloadHistoryBtn.disabled = true;
+                await clearDownloadHistory();
+            } catch (error) {
+                alert(`清空历史失败: ${error.message}`);
+            } finally {
+                clearDownloadHistoryBtn.disabled = false;
+            }
+        });
+    }
+    downloadHistoryList.addEventListener("click", (event) => {
+        if (event.target.closest("[data-action][data-task-id]")) {
+            return;
+        }
+        const card = event.target.closest(".download-card.history.is-clickable");
+        if (!card) {
+            return;
+        }
+        const pageUrl = card.dataset.pageUrl;
+        if (!pageUrl) {
+            return;
+        }
+        openHistoryTask(pageUrl);
     });
 
     // ---- Settings API ----
@@ -746,7 +886,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
         try {
             const resp = await fetch(`/api/browse?category=${encodeURIComponent(category)}&page=${page}`);
-            if (!resp.ok) throw new Error("无法获取该分类资源，可能被盾");
+            if (!resp.ok) {
+                const errText = await resp.text();
+                throw new Error(errText || "无法获取该分类资源，可能被盾");
+            }
             
             const data = await resp.json();
             currentBrowseVideos = Array.isArray(data.videos) ? data.videos : [];

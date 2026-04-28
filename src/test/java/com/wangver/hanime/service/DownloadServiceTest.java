@@ -36,9 +36,11 @@ class DownloadServiceTest {
         CountDownLatch completed = new CountDownLatch(2);
         List<String> executionOrder = new CopyOnWriteArrayList<>();
 
+        LocalCoverService localCoverService = createLocalCoverService();
         DownloadService service = new DownloadService(
                 settingsManager,
                 historyStore,
+                localCoverService,
                 request -> new DownloadService.ResolvedDownload(
                         request.getTitle(),
                         request.getPageUrl(),
@@ -86,9 +88,11 @@ class DownloadServiceTest {
         CountDownLatch completed = new CountDownLatch(1);
         AtomicInteger resolverCalls = new AtomicInteger();
 
+        LocalCoverService localCoverService = createLocalCoverService();
         DownloadService service = new DownloadService(
                 settingsManager,
                 historyStore,
+                localCoverService,
                 request -> {
                     resolverCalls.incrementAndGet();
                     return new DownloadService.ResolvedDownload(
@@ -128,9 +132,11 @@ class DownloadServiceTest {
         DownloadHistoryStore historyStore = new DownloadHistoryStore(tempDir.resolve("download-history.json"), objectMapper);
         CountDownLatch completed = new CountDownLatch(1);
 
+        LocalCoverService localCoverService = createLocalCoverService();
         DownloadService firstService = new DownloadService(
                 settingsManager,
                 historyStore,
+                localCoverService,
                 request -> new DownloadService.ResolvedDownload(
                         request.getTitle(),
                         request.getPageUrl(),
@@ -159,6 +165,7 @@ class DownloadServiceTest {
         DownloadService secondService = new DownloadService(
                 settingsManager,
                 historyStore,
+                localCoverService,
                 request -> {
                     throw new IllegalStateException("本测试不会执行到这里");
                 },
@@ -182,9 +189,11 @@ class DownloadServiceTest {
         CountDownLatch started = new CountDownLatch(1);
         CountDownLatch finished = new CountDownLatch(1);
 
+        LocalCoverService localCoverService = createLocalCoverService();
         DownloadService service = new DownloadService(
                 settingsManager,
                 historyStore,
+                localCoverService,
                 request -> new DownloadService.ResolvedDownload(
                         request.getTitle(),
                         request.getPageUrl(),
@@ -233,9 +242,11 @@ class DownloadServiceTest {
         CountDownLatch blocker = new CountDownLatch(1);
         AtomicBoolean secondTaskRan = new AtomicBoolean(false);
 
+        LocalCoverService localCoverService = createLocalCoverService();
         DownloadService service = new DownloadService(
                 settingsManager,
                 historyStore,
+                localCoverService,
                 request -> new DownloadService.ResolvedDownload(
                         request.getTitle(),
                         request.getPageUrl(),
@@ -284,14 +295,65 @@ class DownloadServiceTest {
     }
 
     @Test
+    void cancellingActiveTaskUpdatesSnapshotImmediately() throws Exception {
+        SettingsManager settingsManager = createSettingsManager(tempDir.resolve("downloads"));
+        DownloadHistoryStore historyStore = new DownloadHistoryStore(tempDir.resolve("download-history.json"), objectMapper);
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+
+        LocalCoverService localCoverService = createLocalCoverService();
+        DownloadService service = new DownloadService(
+                settingsManager,
+                historyStore,
+                localCoverService,
+                request -> new DownloadService.ResolvedDownload(
+                        request.getTitle(),
+                        request.getPageUrl(),
+                        request.getDownloadUrl(),
+                        request.getThumbnail(),
+                        request.getTitle() + ".mp4"
+                ),
+                (resolvedDownload, targetFile, progressConsumer, control) -> {
+                    started.countDown();
+                    progressConsumer.accept(new DownloadProgress(1, 10));
+                    release.await(5, TimeUnit.SECONDS);
+                    control.throwIfCancelled();
+                    Files.writeString(targetFile, resolvedDownload.title());
+                }
+        );
+
+        try {
+            DownloadBatchRequest request = new DownloadBatchRequest();
+            request.setItems(List.of(item("可取消任务", null, "https://media.example.com/cancel.mp4")));
+
+            service.enqueue(request);
+
+            assertTrue(started.await(5, TimeUnit.SECONDS));
+            String taskId = service.getSnapshot().activeTasks().get(0).getId();
+            DownloadSnapshot snapshot = service.cancelTask(taskId);
+
+            assertEquals(DownloadStatus.CANCELLED, snapshot.activeTasks().get(0).getStatus());
+
+            release.countDown();
+            assertTrue(waitUntil(() -> service.getSnapshot().historyTasks().stream()
+                    .anyMatch(task -> task.getId().equals(taskId) && task.getStatus() == DownloadStatus.CANCELLED)));
+        } finally {
+            release.countDown();
+            service.shutdown();
+        }
+    }
+
+    @Test
     void retriesFailedHistoryTaskAsNewQueuedTask() throws Exception {
         SettingsManager settingsManager = createSettingsManager(tempDir.resolve("downloads"));
         DownloadHistoryStore historyStore = new DownloadHistoryStore(tempDir.resolve("download-history.json"), objectMapper);
         AtomicInteger attempts = new AtomicInteger();
 
+        LocalCoverService localCoverService = createLocalCoverService();
         DownloadService service = new DownloadService(
                 settingsManager,
                 historyStore,
+                localCoverService,
                 request -> new DownloadService.ResolvedDownload(
                         request.getTitle(),
                         request.getPageUrl(),
@@ -325,6 +387,10 @@ class DownloadServiceTest {
         } finally {
             service.shutdown();
         }
+    }
+
+    private LocalCoverService createLocalCoverService() {
+        return new LocalCoverService(tempDir.resolve("covers"), null, null);
     }
 
     private SettingsManager createSettingsManager(Path downloadDirectory) {

@@ -1,6 +1,10 @@
 package com.wangver.hanime.controller;
 
 import com.wangver.hanime.service.HanimeParserService;
+import com.wangver.hanime.service.HistoryCoverService;
+import com.wangver.hanime.service.HttpSessionExpiredException;
+import com.wangver.hanime.service.ImageProxyService;
+import com.wangver.hanime.service.LocalCoverService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -37,6 +41,15 @@ public class ApiController {
     @Autowired
     private DownloadService downloadService;
 
+    @Autowired
+    private ImageProxyService imageProxyService;
+
+    @Autowired
+    private HistoryCoverService historyCoverService;
+
+    @Autowired
+    private LocalCoverService localCoverService;
+
     @PostMapping("/parse")
     public ResponseEntity<?> parseVideo(@RequestBody Map<String, String> payload) {
         String url = payload.get("url");
@@ -47,6 +60,8 @@ public class ApiController {
         try {
             Map<String, Object> result = parserService.parse(url);
             return ResponseEntity.ok(result);
+        } catch (HttpSessionExpiredException e) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(e.getMessage());
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("解析错误: " + e.getMessage());
@@ -86,6 +101,8 @@ public class ApiController {
         }
         try {
             return ResponseEntity.ok(browseService.fetchCategory(category, page));
+        } catch (HttpSessionExpiredException e) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(e.getMessage());
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("获取分类失败: " + e.getMessage());
@@ -98,29 +115,14 @@ public class ApiController {
     @GetMapping("/proxy/image")
     public ResponseEntity<StreamingResponseBody> proxyImage(@RequestParam String url) {
         try {
-            URL imageUrl = new URL(url);
-            HttpURLConnection connection = (HttpURLConnection) imageUrl.openConnection();
-            connection.setRequestMethod("GET");
-            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
-            connection.setRequestProperty("Referer", "https://hanime1.me/");
-            connection.setConnectTimeout(5000);
-            connection.setReadTimeout(10000);
-
-            InputStream is = connection.getInputStream();
-            String contentType = connection.getContentType();
+            ImageProxyService.ImageResponse image = imageProxyService.fetchImage(url);
 
             StreamingResponseBody responseBody = outputStream -> {
-                try (is) {
-                    byte[] buffer = new byte[8192];
-                    int bytesRead;
-                    while ((bytesRead = is.read(buffer)) != -1) {
-                        outputStream.write(buffer, 0, bytesRead);
-                    }
-                }
+                outputStream.write(image.bytes());
             };
 
             HttpHeaders headers = new HttpHeaders();
-            headers.add(HttpHeaders.CONTENT_TYPE, contentType != null ? contentType : "image/jpeg");
+            headers.add(HttpHeaders.CONTENT_TYPE, image.contentType() != null ? image.contentType() : "image/jpeg");
 
             return new ResponseEntity<>(responseBody, headers, HttpStatus.OK);
 
@@ -128,6 +130,50 @@ public class ApiController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
+
+    @GetMapping("/proxy/history-cover")
+    public ResponseEntity<StreamingResponseBody> proxyHistoryCover(
+            @RequestParam String url,
+            @RequestParam(required = false) String thumbnail) {
+        try {
+            ImageProxyService.ImageResponse image = historyCoverService.fetchCover(url, thumbnail);
+
+            StreamingResponseBody responseBody = outputStream -> {
+                outputStream.write(image.bytes());
+            };
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.add(HttpHeaders.CONTENT_TYPE, image.contentType() != null ? image.contentType() : "image/jpeg");
+            headers.add(HttpHeaders.CACHE_CONTROL, "public, max-age=86400");
+
+            return new ResponseEntity<>(responseBody, headers, HttpStatus.OK);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @GetMapping("/local-cover/{taskId}")
+    public ResponseEntity<byte[]> localCover(@PathVariable String taskId) {
+        try {
+            java.nio.file.Path cached = localCoverService.getCoverPath(taskId);
+            if (cached != null) {
+                byte[] bytes = java.nio.file.Files.readAllBytes(cached);
+                HttpHeaders headers = new HttpHeaders();
+                headers.add(HttpHeaders.CONTENT_TYPE, "image/jpeg");
+                headers.add(HttpHeaders.CACHE_CONTROL, "public, max-age=86400");
+                return new ResponseEntity<>(bytes, headers, HttpStatus.OK);
+            }
+
+            byte[] bytes = localCoverService.getOrFetch(taskId, null, null);
+            HttpHeaders headers = new HttpHeaders();
+            headers.add(HttpHeaders.CONTENT_TYPE, "image/jpeg");
+            headers.add(HttpHeaders.CACHE_CONTROL, "public, max-age=86400");
+            return new ResponseEntity<>(bytes, headers, HttpStatus.OK);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
     /**
      * 视频流代理，支持 HTTP Range (206) 以便前端视频播放器可以拖动进度条
      */

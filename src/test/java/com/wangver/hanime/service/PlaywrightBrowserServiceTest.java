@@ -4,7 +4,6 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -12,9 +11,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 class PlaywrightBrowserServiceTest {
 
@@ -63,14 +60,15 @@ class PlaywrightBrowserServiceTest {
 
     @SuppressWarnings("unchecked")
     @Test
-    void keepsBrowserWindowVisibleAfterVerification() throws Exception {
+    void buildLaunchArgsContainsDisableAutomationAndWindowPosition() throws Exception {
         PlaywrightBrowserService service = new PlaywrightBrowserService();
-        Method method = PlaywrightBrowserService.class.getDeclaredMethod("buildLaunchArgs", boolean.class);
+
+        Method method = PlaywrightBrowserService.class.getDeclaredMethod("buildLaunchArgs");
         method.setAccessible(true);
 
-        List<String> args = (List<String>) method.invoke(service, true);
+        List<String> args = (List<String>) method.invoke(service);
 
         assertTrue(args.contains("--disable-blink-features=AutomationControlled"));
-        assertFalse(args.contains("--window-position=-32000,-32000"));
+        assertEquals(1, args.size());
     }
 }

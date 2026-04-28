@@ -19,6 +19,7 @@ import java.util.List;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -106,6 +107,28 @@ class DownloadControllerTest {
                 .andExpect(jsonPath("$.historyTasks[0].title").value("完成任务"));
 
         verify(downloadService).retryTask("task-1");
+    }
+
+    @Test
+    void clearsDownloadHistory() throws Exception {
+        when(downloadService.clearHistory()).thenReturn(new DownloadSnapshot(List.of(), List.of(), List.of()));
+
+        mockMvc.perform(delete("/api/downloads/history"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.historyTasks").isEmpty());
+
+        verify(downloadService).clearHistory();
+    }
+
+    @Test
+    void clearsDownloadHistoryWithPostFallback() throws Exception {
+        when(downloadService.clearHistory()).thenReturn(new DownloadSnapshot(List.of(), List.of(), List.of()));
+
+        mockMvc.perform(post("/api/downloads/history/clear"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.historyTasks").isEmpty());
+
+        verify(downloadService).clearHistory();
     }
 
     private DownloadSnapshot snapshot() {
